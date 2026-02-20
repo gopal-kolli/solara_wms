@@ -84,6 +84,67 @@ frappe.ui.form.on("WMS Task", {
             );
         }
 
+        // ─── Pick Route Optimization (Pick tasks, not Completed/Cancelled) ──
+        if (
+            frm.doc.task_type === "Pick" &&
+            frm.doc.status !== "Completed" &&
+            frm.doc.status !== "Cancelled"
+        ) {
+            frm.add_custom_button(
+                __("Optimize Pick Route"),
+                function () {
+                    frappe.confirm(
+                        __(
+                            "Optimize pick route? This will auto-assign bins and reorder items " +
+                            "for the fastest warehouse walk (serpentine routing)."
+                        ),
+                        function () {
+                            frappe.call({
+                                method: "solara_wms.wms.pick_route.apply_optimized_route",
+                                args: { task_name: frm.doc.name },
+                                freeze: true,
+                                freeze_message: __("Optimizing pick route..."),
+                                callback: function () {
+                                    frm.reload_doc();
+                                },
+                            });
+                        }
+                    );
+                },
+                __("Actions")
+            );
+
+            frm.add_custom_button(
+                __("Preview Route"),
+                function () {
+                    frappe.call({
+                        method: "solara_wms.wms.pick_route.get_optimized_pick_route",
+                        args: { task_name: frm.doc.name },
+                        freeze: true,
+                        freeze_message: __("Calculating route..."),
+                        callback: function (r) {
+                            if (!r.message || r.message.length === 0) {
+                                frappe.msgprint(__("No items to optimize."));
+                                return;
+                            }
+                            show_route_preview_dialog(frm, r.message);
+                        },
+                    });
+                },
+                __("Actions")
+            );
+        }
+
+        // ─── Sort grid by pick_sequence if optimized ────────
+        if (frm.doc.task_type === "Pick" && frm.doc.items) {
+            let has_sequence = frm.doc.items.some((r) => r.pick_sequence > 0);
+            if (has_sequence) {
+                frm.fields_dict.items.grid.grid_rows.sort(function (a, b) {
+                    return (a.doc.pick_sequence || 999) - (b.doc.pick_sequence || 999);
+                });
+            }
+        }
+
         // ─── Cancel Button (not Completed or Cancelled) ──────
         if (frm.doc.status !== "Completed" && frm.doc.status !== "Cancelled") {
             frm.add_custom_button(
@@ -274,3 +335,67 @@ frappe.ui.form.on("WMS Task Item", {
         }
     },
 });
+
+// ─── Route Preview Dialog ────────────────────────────────────────
+function show_route_preview_dialog(frm, route_data) {
+    let rows = route_data
+        .map(function (r) {
+            let location = [r.aisle, r.rack, r.shelf, r.level]
+                .filter(Boolean)
+                .join("-");
+            let error_badge = r.error_message
+                ? ' <span class="text-danger">(' + r.error_message + ")</span>"
+                : "";
+            return (
+                "<tr>" +
+                "<td>" + r.pick_sequence + "</td>" +
+                "<td>" + r.item_code + error_badge + "</td>" +
+                "<td>" + (r.item_name || "") + "</td>" +
+                "<td>" + (r.bin_code || r.source_bin || "-") + "</td>" +
+                "<td>" + (location || "-") + "</td>" +
+                "<td>" + (r.zone_type || "-") + "</td>" +
+                "<td>" + r.qty + "</td>" +
+                "</tr>"
+            );
+        })
+        .join("");
+
+    let html =
+        '<div style="max-height: 400px; overflow-y: auto;">' +
+        '<table class="table table-bordered table-sm">' +
+        "<thead><tr>" +
+        "<th>#</th><th>Item</th><th>Name</th><th>Bin</th>" +
+        "<th>Location</th><th>Zone</th><th>Qty</th>" +
+        "</tr></thead>" +
+        "<tbody>" +
+        rows +
+        "</tbody></table></div>";
+
+    let d = new frappe.ui.Dialog({
+        title: __("Pick Route Preview (Serpentine)"),
+        size: "extra-large",
+        fields: [
+            {
+                fieldtype: "HTML",
+                fieldname: "route_table",
+                options: html,
+            },
+        ],
+        primary_action_label: __("Apply Route"),
+        primary_action: function () {
+            frappe.call({
+                method: "solara_wms.wms.pick_route.apply_optimized_route",
+                args: { task_name: frm.doc.name },
+                freeze: true,
+                freeze_message: __("Applying optimized route..."),
+                callback: function () {
+                    d.hide();
+                    frm.reload_doc();
+                },
+            });
+        },
+        secondary_action_label: __("Close"),
+    });
+
+    d.show();
+}

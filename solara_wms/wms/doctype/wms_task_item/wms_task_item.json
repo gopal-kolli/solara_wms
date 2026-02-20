@@ -19,6 +19,7 @@
     "batch_no",
     "serial_no",
     "column_break_5",
+    "pick_sequence",
     "row_status",
     "difference_qty",
     "error_message"
@@ -111,6 +112,15 @@
     {
       "fieldname": "column_break_5",
       "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "pick_sequence",
+      "fieldtype": "Int",
+      "label": "Pick Seq",
+      "read_only": 1,
+      "in_list_view": 1,
+      "default": "0",
+      "description": "Optimized pick order. Lower = pick first. 0 = unsequenced."
     },
     {
       "fieldname": "row_status",

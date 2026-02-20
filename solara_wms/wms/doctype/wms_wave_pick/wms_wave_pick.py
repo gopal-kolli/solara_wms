@@ -117,6 +117,13 @@ class WMSWavePick(Document):
                 task.insert()
                 self.wms_task = task.name
 
+                # Auto-optimize pick route (serpentine routing)
+                try:
+                    from solara_wms.wms.pick_route import apply_optimized_route
+                    apply_optimized_route(task.name)
+                except Exception:
+                    pass  # Task created but unoptimized — still usable
+
         except Exception as e:
             error_log.append(f"Pick task creation failed: {str(e)}")
 

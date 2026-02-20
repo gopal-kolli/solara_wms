@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include solara_wms *.css
+recursive-include solara_wms *.csv
+recursive-include solara_wms *.html
+recursive-include solara_wms *.ico
+recursive-include solara_wms *.js
+recursive-include solara_wms *.json
+recursive-include solara_wms *.md
+recursive-include solara_wms *.png
+recursive-include solara_wms *.py
+recursive-include solara_wms *.svg
+recursive-include solara_wms *.txt
+recursive-exclude solara_wms *.pyc

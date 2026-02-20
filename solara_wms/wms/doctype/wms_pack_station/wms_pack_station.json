@@ -1,0 +1,267 @@
+{
+  "actions": [],
+  "autoname": "WMS-PACK-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "status",
+    "sales_order",
+    "customer",
+    "customer_name",
+    "dispatch",
+    "warehouse",
+    "column_break_header",
+    "packer",
+    "started_at",
+    "completed_at",
+    "scan_input",
+    "section_break_items",
+    "items",
+    "section_break_packages",
+    "packages",
+    "section_break_summary",
+    "total_to_pack",
+    "total_packed",
+    "column_break_summary",
+    "total_packages",
+    "total_weight",
+    "section_break_result",
+    "packing_slip",
+    "column_break_result",
+    "delivery_note",
+    "section_break_notes",
+    "notes",
+    "error_log"
+  ],
+  "fields": [
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nPacking\nCompleted\nCancelled",
+      "default": "Draft",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "sales_order",
+      "fieldtype": "Link",
+      "label": "Sales Order",
+      "options": "Sales Order",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "customer",
+      "fieldtype": "Data",
+      "label": "Customer",
+      "read_only": 1,
+      "fetch_from": "sales_order.customer",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "customer_name",
+      "fieldtype": "Data",
+      "label": "Customer Name",
+      "read_only": 1,
+      "fetch_from": "sales_order.customer_name"
+    },
+    {
+      "fieldname": "dispatch",
+      "fieldtype": "Link",
+      "label": "Dispatch",
+      "options": "WMS Dispatch",
+      "description": "Optional link to dispatch record"
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "packer",
+      "fieldtype": "Link",
+      "label": "Packer",
+      "options": "User",
+      "in_standard_filter": 1,
+      "description": "Assigned packer"
+    },
+    {
+      "fieldname": "started_at",
+      "fieldtype": "Datetime",
+      "label": "Started At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "completed_at",
+      "fieldtype": "Datetime",
+      "label": "Completed At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "scan_input",
+      "fieldtype": "Data",
+      "label": "Scan Barcode",
+      "description": "Scan item barcode to verify and pack (not saved)"
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "Items to Pack"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "WMS Pack Station Item",
+      "description": "Items to be packed"
+    },
+    {
+      "fieldname": "section_break_packages",
+      "fieldtype": "Section Break",
+      "label": "Packages"
+    },
+    {
+      "fieldname": "packages",
+      "fieldtype": "Table",
+      "label": "Packages",
+      "options": "WMS Pack Station Package",
+      "description": "Packages/cartons being filled"
+    },
+    {
+      "fieldname": "section_break_summary",
+      "fieldtype": "Section Break",
+      "label": "Summary"
+    },
+    {
+      "fieldname": "total_to_pack",
+      "fieldtype": "Float",
+      "label": "Total to Pack",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_packed",
+      "fieldtype": "Float",
+      "label": "Total Packed",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_summary",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "total_packages",
+      "fieldtype": "Int",
+      "label": "Total Packages",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_weight",
+      "fieldtype": "Float",
+      "label": "Total Weight (kg)",
+      "read_only": 1,
+      "description": "Sum of package weights"
+    },
+    {
+      "fieldname": "section_break_result",
+      "fieldtype": "Section Break",
+      "label": "Created Documents",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "packing_slip",
+      "fieldtype": "Link",
+      "label": "Packing Slip",
+      "options": "Packing Slip",
+      "read_only": 1,
+      "description": "Auto-created on completion"
+    },
+    {
+      "fieldname": "column_break_result",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "delivery_note",
+      "fieldtype": "Link",
+      "label": "Delivery Note",
+      "options": "Delivery Note",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Pack Station",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

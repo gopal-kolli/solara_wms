@@ -1,0 +1,155 @@
+{
+  "actions": [],
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "item_code",
+    "item_name",
+    "bin",
+    "column_break_1",
+    "book_qty",
+    "counted_qty",
+    "uom",
+    "section_break_variance",
+    "variance_qty",
+    "variance_pct",
+    "column_break_2",
+    "valuation_rate",
+    "variance_value",
+    "section_break_3",
+    "batch_no",
+    "column_break_4",
+    "row_status",
+    "error_message"
+  ],
+  "fields": [
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "Item Code",
+      "options": "Item",
+      "in_list_view": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "label": "Item Name",
+      "read_only": 1,
+      "fetch_from": "item_code.item_name"
+    },
+    {
+      "fieldname": "bin",
+      "fieldtype": "Link",
+      "label": "Bin",
+      "options": "Warehouse Bin",
+      "description": "Bin location for this item"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "book_qty",
+      "fieldtype": "Float",
+      "label": "Book Qty",
+      "read_only": 1,
+      "in_list_view": 1,
+      "description": "Current system quantity (from ERPNext Bin)"
+    },
+    {
+      "fieldname": "counted_qty",
+      "fieldtype": "Float",
+      "label": "Counted Qty",
+      "in_list_view": 1,
+      "description": "Physical count entered by operator"
+    },
+    {
+      "fieldname": "uom",
+      "fieldtype": "Link",
+      "label": "UOM",
+      "options": "UOM",
+      "fetch_from": "item_code.stock_uom"
+    },
+    {
+      "fieldname": "section_break_variance",
+      "fieldtype": "Section Break",
+      "label": "Variance"
+    },
+    {
+      "fieldname": "variance_qty",
+      "fieldtype": "Float",
+      "label": "Variance Qty",
+      "read_only": 1,
+      "description": "counted_qty - book_qty"
+    },
+    {
+      "fieldname": "variance_pct",
+      "fieldtype": "Percent",
+      "label": "Variance %",
+      "read_only": 1,
+      "description": "(variance_qty / book_qty) * 100"
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "valuation_rate",
+      "fieldtype": "Currency",
+      "label": "Valuation Rate",
+      "read_only": 1,
+      "description": "From ERPNext Bin"
+    },
+    {
+      "fieldname": "variance_value",
+      "fieldtype": "Currency",
+      "label": "Variance Value",
+      "read_only": 1,
+      "description": "variance_qty * valuation_rate"
+    },
+    {
+      "fieldname": "section_break_3",
+      "fieldtype": "Section Break",
+      "label": "Tracking"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Link",
+      "label": "Batch No",
+      "options": "Batch"
+    },
+    {
+      "fieldname": "column_break_4",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "row_status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nCounted\nVariance\nMatched",
+      "default": "Pending",
+      "in_list_view": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "error_message",
+      "fieldtype": "Small Text",
+      "label": "Error Message",
+      "read_only": 1
+    }
+  ],
+  "istable": 1,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Cycle Count Item",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 0
+}

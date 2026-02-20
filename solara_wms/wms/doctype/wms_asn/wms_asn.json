@@ -1,0 +1,264 @@
+{
+  "actions": [],
+  "autoname": "WMS-ASN-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "asn_no",
+    "status",
+    "supplier",
+    "purchase_order",
+    "expected_arrival",
+    "actual_arrival",
+    "column_break_header",
+    "warehouse",
+    "receiving_bin",
+    "carrier",
+    "tracking_no",
+    "vehicle_no",
+    "section_break_items",
+    "items",
+    "section_break_summary",
+    "total_expected",
+    "total_received",
+    "column_break_summary",
+    "total_shortage",
+    "total_damage",
+    "section_break_result",
+    "purchase_receipt",
+    "column_break_result",
+    "putaway_task",
+    "section_break_notes",
+    "notes",
+    "error_log"
+  ],
+  "fields": [
+    {
+      "fieldname": "asn_no",
+      "fieldtype": "Data",
+      "label": "ASN No",
+      "read_only": 1,
+      "in_list_view": 1,
+      "description": "Auto-set to document name (ModernWMS: asn_no)"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nConfirmed\nArrived\nUnloading\nSorted\nPutaway Created\nCompleted\nCancelled",
+      "default": "Draft",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 1,
+      "description": "ASN workflow status (ModernWMS: asn_status 0-8)"
+    },
+    {
+      "fieldname": "supplier",
+      "fieldtype": "Link",
+      "label": "Supplier",
+      "options": "Supplier",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "ModernWMS: supplier_id"
+    },
+    {
+      "fieldname": "purchase_order",
+      "fieldtype": "Link",
+      "label": "Purchase Order",
+      "options": "Purchase Order"
+    },
+    {
+      "fieldname": "expected_arrival",
+      "fieldtype": "Date",
+      "label": "Expected Arrival",
+      "default": "Today",
+      "description": "ModernWMS: asn_date"
+    },
+    {
+      "fieldname": "actual_arrival",
+      "fieldtype": "Datetime",
+      "label": "Actual Arrival",
+      "read_only": 1,
+      "description": "Set when status changes to Arrived"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Receiving Warehouse",
+      "options": "Warehouse",
+      "reqd": 1,
+      "in_standard_filter": 1,
+      "description": "Warehouse where goods will be received (ModernWMS: warehouse_id)"
+    },
+    {
+      "fieldname": "receiving_bin",
+      "fieldtype": "Link",
+      "label": "Receiving Bin",
+      "options": "Warehouse Bin",
+      "description": "Default receiving bin location"
+    },
+    {
+      "fieldname": "carrier",
+      "fieldtype": "Data",
+      "label": "Carrier",
+      "description": "Shipping carrier name (ModernWMS: carrier)"
+    },
+    {
+      "fieldname": "tracking_no",
+      "fieldtype": "Data",
+      "label": "Tracking No",
+      "description": "Waybill/tracking number (ModernWMS: waybill_no)"
+    },
+    {
+      "fieldname": "vehicle_no",
+      "fieldtype": "Data",
+      "label": "Vehicle No",
+      "description": "Truck/vehicle number"
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "ASN Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "WMS ASN Item",
+      "description": "Items expected in this shipment"
+    },
+    {
+      "fieldname": "section_break_summary",
+      "fieldtype": "Section Break",
+      "label": "Summary"
+    },
+    {
+      "fieldname": "total_expected",
+      "fieldtype": "Float",
+      "label": "Total Expected Qty",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_received",
+      "fieldtype": "Float",
+      "label": "Total Received Qty",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_summary",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "total_shortage",
+      "fieldtype": "Float",
+      "label": "Total Shortage",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_damage",
+      "fieldtype": "Float",
+      "label": "Total Damage",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_result",
+      "fieldtype": "Section Break",
+      "label": "Created Documents",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "purchase_receipt",
+      "fieldtype": "Link",
+      "label": "Purchase Receipt",
+      "options": "Purchase Receipt",
+      "read_only": 1,
+      "description": "Auto-created Purchase Receipt on ASN completion"
+    },
+    {
+      "fieldname": "column_break_result",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "putaway_task",
+      "fieldtype": "Link",
+      "label": "Putaway Task",
+      "options": "WMS Task",
+      "read_only": 1,
+      "description": "Auto-created WMS Putaway Task"
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS ASN",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "asn_no",
+  "track_changes": 1
+}

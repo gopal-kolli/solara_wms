@@ -1,0 +1,317 @@
+{
+  "actions": [],
+  "autoname": "WMS-TASK-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "task_type",
+    "status",
+    "priority",
+    "column_break_header",
+    "assigned_to",
+    "task_date",
+    "completed_at",
+    "section_break_location",
+    "source_warehouse",
+    "source_bin",
+    "column_break_location2",
+    "target_warehouse",
+    "target_bin",
+    "section_break_reference",
+    "reference_doctype",
+    "reference_name",
+    "column_break_reference2",
+    "sales_order",
+    "purchase_order",
+    "section_break_items",
+    "items",
+    "section_break_summary",
+    "total_items",
+    "column_break_summary",
+    "completed_items",
+    "section_break_result",
+    "stock_entry",
+    "pick_list",
+    "column_break_result2",
+    "stock_reconciliation",
+    "section_break_notes",
+    "notes",
+    "error_log"
+  ],
+  "fields": [
+    {
+      "fieldname": "task_type",
+      "fieldtype": "Select",
+      "label": "Task Type",
+      "options": "\nPutaway\nPick\nPack\nCount\nTransfer",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Type of warehouse operation (ModernWMS: StockProcess/StockMove/StockTaking)"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nAssigned\nIn Progress\nCompleted\nCancelled",
+      "default": "Pending",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 1,
+      "description": "Task workflow status"
+    },
+    {
+      "fieldname": "priority",
+      "fieldtype": "Select",
+      "label": "Priority",
+      "options": "Low\nMedium\nHigh\nUrgent",
+      "default": "Medium",
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "assigned_to",
+      "fieldtype": "Link",
+      "label": "Assigned To",
+      "options": "User",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Warehouse operator assigned to this task"
+    },
+    {
+      "fieldname": "task_date",
+      "fieldtype": "Date",
+      "label": "Task Date",
+      "default": "Today",
+      "read_only": 0
+    },
+    {
+      "fieldname": "completed_at",
+      "fieldtype": "Datetime",
+      "label": "Completed At",
+      "read_only": 1,
+      "description": "Timestamp when task was marked completed"
+    },
+    {
+      "fieldname": "section_break_location",
+      "fieldtype": "Section Break",
+      "label": "Locations"
+    },
+    {
+      "fieldname": "source_warehouse",
+      "fieldtype": "Link",
+      "label": "Source Warehouse",
+      "options": "Warehouse",
+      "description": "Where items are picked/moved FROM (ModernWMS: orig_goods_location via warehouse)"
+    },
+    {
+      "fieldname": "source_bin",
+      "fieldtype": "Link",
+      "label": "Source Bin",
+      "options": "Warehouse Bin",
+      "description": "Specific bin to pick/move FROM"
+    },
+    {
+      "fieldname": "column_break_location2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "target_warehouse",
+      "fieldtype": "Link",
+      "label": "Target Warehouse",
+      "options": "Warehouse",
+      "description": "Where items are put/moved TO (ModernWMS: dest_goods_location via warehouse)"
+    },
+    {
+      "fieldname": "target_bin",
+      "fieldtype": "Link",
+      "label": "Target Bin",
+      "options": "Warehouse Bin",
+      "description": "Specific bin to put/move TO"
+    },
+    {
+      "fieldname": "section_break_reference",
+      "fieldtype": "Section Break",
+      "label": "Reference Documents",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Link",
+      "label": "Reference DocType",
+      "options": "DocType",
+      "read_only": 0,
+      "description": "Type of originating document (e.g. Purchase Receipt, Sales Order)"
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Dynamic Link",
+      "label": "Reference Name",
+      "options": "reference_doctype",
+      "read_only": 0,
+      "description": "The specific originating document"
+    },
+    {
+      "fieldname": "column_break_reference2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "sales_order",
+      "fieldtype": "Link",
+      "label": "Sales Order",
+      "options": "Sales Order",
+      "read_only": 0,
+      "description": "Linked Sales Order (for Pick/Pack tasks)"
+    },
+    {
+      "fieldname": "purchase_order",
+      "fieldtype": "Link",
+      "label": "Purchase Order",
+      "options": "Purchase Order",
+      "read_only": 0,
+      "description": "Linked Purchase Order (for Putaway tasks)"
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "Task Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "WMS Task Item",
+      "reqd": 0,
+      "description": "Items to be processed in this task"
+    },
+    {
+      "fieldname": "section_break_summary",
+      "fieldtype": "Section Break",
+      "label": "Summary"
+    },
+    {
+      "fieldname": "total_items",
+      "fieldtype": "Int",
+      "label": "Total Items",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_summary",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "completed_items",
+      "fieldtype": "Int",
+      "label": "Completed Items",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_result",
+      "fieldtype": "Section Break",
+      "label": "Created Documents",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "stock_entry",
+      "fieldtype": "Link",
+      "label": "Stock Entry",
+      "options": "Stock Entry",
+      "read_only": 1,
+      "description": "Auto-created Stock Entry on task completion"
+    },
+    {
+      "fieldname": "pick_list",
+      "fieldtype": "Link",
+      "label": "Pick List",
+      "options": "Pick List",
+      "read_only": 1,
+      "description": "Linked ERPNext Pick List"
+    },
+    {
+      "fieldname": "column_break_result2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "stock_reconciliation",
+      "fieldtype": "Link",
+      "label": "Stock Reconciliation",
+      "options": "Stock Reconciliation",
+      "read_only": 1,
+      "description": "Auto-created Stock Reconciliation (for Count tasks with differences)"
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Task",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "task_type",
+  "track_changes": 1
+}

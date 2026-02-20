@@ -1,0 +1,274 @@
+{
+  "actions": [],
+  "autoname": "WMS-DISP-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "status",
+    "sales_order",
+    "customer",
+    "customer_name",
+    "warehouse",
+    "dispatch_date",
+    "column_break_header",
+    "carrier",
+    "tracking_no",
+    "shipping_method",
+    "total_weight",
+    "total_packages",
+    "dispatched_at",
+    "delivered_at",
+    "section_break_items",
+    "items",
+    "section_break_summary",
+    "total_qty",
+    "column_break_summary",
+    "total_dispatched",
+    "section_break_result",
+    "delivery_note",
+    "shipment",
+    "column_break_result",
+    "wave_pick",
+    "pick_task",
+    "section_break_notes",
+    "notes",
+    "error_log"
+  ],
+  "fields": [
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nAllocated\nPicked\nPacked\nWeighed\nDispatched\nDelivered\nCancelled",
+      "default": "Pending",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 1,
+      "description": "ModernWMS: dispatch_status (0-7)"
+    },
+    {
+      "fieldname": "sales_order",
+      "fieldtype": "Link",
+      "label": "Sales Order",
+      "options": "Sales Order",
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "customer",
+      "fieldtype": "Data",
+      "label": "Customer",
+      "read_only": 1,
+      "fetch_from": "sales_order.customer",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "customer_name",
+      "fieldtype": "Data",
+      "label": "Customer Name",
+      "read_only": 1,
+      "fetch_from": "sales_order.customer_name"
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "reqd": 1,
+      "in_standard_filter": 1,
+      "description": "Source warehouse for dispatch"
+    },
+    {
+      "fieldname": "dispatch_date",
+      "fieldtype": "Date",
+      "label": "Dispatch Date",
+      "default": "Today"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "carrier",
+      "fieldtype": "Data",
+      "label": "Carrier",
+      "description": "Shipping carrier (ModernWMS: carrier)"
+    },
+    {
+      "fieldname": "tracking_no",
+      "fieldtype": "Data",
+      "label": "Tracking No",
+      "description": "Waybill/tracking number (ModernWMS: waybill_no)"
+    },
+    {
+      "fieldname": "shipping_method",
+      "fieldtype": "Data",
+      "label": "Shipping Method"
+    },
+    {
+      "fieldname": "total_weight",
+      "fieldtype": "Float",
+      "label": "Total Weight (kg)",
+      "description": "Actual weighed total"
+    },
+    {
+      "fieldname": "total_packages",
+      "fieldtype": "Int",
+      "label": "Total Packages"
+    },
+    {
+      "fieldname": "dispatched_at",
+      "fieldtype": "Datetime",
+      "label": "Dispatched At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "delivered_at",
+      "fieldtype": "Datetime",
+      "label": "Delivered At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "Dispatch Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "WMS Dispatch Item",
+      "description": "Items to be dispatched"
+    },
+    {
+      "fieldname": "section_break_summary",
+      "fieldtype": "Section Break",
+      "label": "Summary"
+    },
+    {
+      "fieldname": "total_qty",
+      "fieldtype": "Float",
+      "label": "Total Qty",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_summary",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "total_dispatched",
+      "fieldtype": "Float",
+      "label": "Total Dispatched",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_result",
+      "fieldtype": "Section Break",
+      "label": "Created Documents",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "delivery_note",
+      "fieldtype": "Link",
+      "label": "Delivery Note",
+      "options": "Delivery Note",
+      "read_only": 1,
+      "description": "Auto-created on dispatch"
+    },
+    {
+      "fieldname": "shipment",
+      "fieldtype": "Link",
+      "label": "Shipment",
+      "options": "Shipment",
+      "read_only": 1,
+      "description": "Auto-created on dispatch"
+    },
+    {
+      "fieldname": "column_break_result",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "wave_pick",
+      "fieldtype": "Link",
+      "label": "Wave Pick",
+      "options": "WMS Wave Pick",
+      "description": "Optional link to picking wave"
+    },
+    {
+      "fieldname": "pick_task",
+      "fieldtype": "Link",
+      "label": "Pick Task",
+      "options": "WMS Task",
+      "description": "Optional link to pick task"
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Dispatch",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

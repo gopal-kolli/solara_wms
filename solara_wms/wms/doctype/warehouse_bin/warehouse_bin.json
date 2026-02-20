@@ -1,0 +1,234 @@
+{
+  "actions": [],
+  "autoname": "WMS-BIN-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "warehouse",
+    "bin_code",
+    "column_break_header",
+    "zone_type",
+    "status",
+    "is_active",
+    "section_break_location",
+    "aisle",
+    "rack",
+    "column_break_location2",
+    "shelf",
+    "level",
+    "section_break_capacity",
+    "bin_length",
+    "bin_width",
+    "bin_height",
+    "column_break_capacity2",
+    "bin_volume",
+    "max_weight",
+    "section_break_notes",
+    "barcode",
+    "column_break_notes2",
+    "notes"
+  ],
+  "fields": [
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "ERPNext Warehouse this bin belongs to"
+    },
+    {
+      "fieldname": "bin_code",
+      "fieldtype": "Data",
+      "label": "Bin Code",
+      "reqd": 1,
+      "unique": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Structured location code e.g. A-01-03-2 (Aisle-Rack-Shelf-Level)"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "zone_type",
+      "fieldtype": "Select",
+      "label": "Zone Type",
+      "options": "\nPicking\nStocking\nReceiving\nReturn\nDefective\nStaging",
+      "default": "Stocking",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Area classification (ModernWMS area_property: 0=Picking, 1=Stocking, 2=Receiving, 3=Return, 4=Defective, 5=Staging)"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Active\nFull\nBlocked\nMaintenance",
+      "default": "Active",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 0,
+      "description": "Current operational status of this bin"
+    },
+    {
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "Is Active",
+      "default": "1",
+      "description": "Maps to ModernWMS is_valid flag"
+    },
+    {
+      "fieldname": "section_break_location",
+      "fieldtype": "Section Break",
+      "label": "Physical Location"
+    },
+    {
+      "fieldname": "aisle",
+      "fieldtype": "Data",
+      "label": "Aisle",
+      "description": "Aisle identifier (ModernWMS: roadway_number)"
+    },
+    {
+      "fieldname": "rack",
+      "fieldtype": "Data",
+      "label": "Rack",
+      "description": "Rack number (ModernWMS: shelf_number)"
+    },
+    {
+      "fieldname": "column_break_location2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "shelf",
+      "fieldtype": "Data",
+      "label": "Shelf",
+      "description": "Shelf position (ModernWMS: layer_number)"
+    },
+    {
+      "fieldname": "level",
+      "fieldtype": "Data",
+      "label": "Level",
+      "description": "Vertical level (ModernWMS: tag_number)"
+    },
+    {
+      "fieldname": "section_break_capacity",
+      "fieldtype": "Section Break",
+      "label": "Capacity",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "bin_length",
+      "fieldtype": "Float",
+      "label": "Length (cm)",
+      "description": "ModernWMS: location_length"
+    },
+    {
+      "fieldname": "bin_width",
+      "fieldtype": "Float",
+      "label": "Width (cm)",
+      "description": "ModernWMS: location_width"
+    },
+    {
+      "fieldname": "bin_height",
+      "fieldtype": "Float",
+      "label": "Height (cm)",
+      "description": "ModernWMS: location_heigth"
+    },
+    {
+      "fieldname": "column_break_capacity2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "bin_volume",
+      "fieldtype": "Float",
+      "label": "Volume (cm\u00b3)",
+      "read_only": 1,
+      "description": "Auto-calculated: length x width x height (ModernWMS: location_volume)"
+    },
+    {
+      "fieldname": "max_weight",
+      "fieldtype": "Float",
+      "label": "Max Weight (kg)",
+      "description": "Weight capacity limit (ModernWMS: location_load)"
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Additional Info",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "barcode",
+      "fieldtype": "Data",
+      "label": "Barcode",
+      "description": "Scannable barcode for this bin location"
+    },
+    {
+      "fieldname": "column_break_notes2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Small Text",
+      "label": "Notes"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "Warehouse Bin",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "bin_code",
+  "track_changes": 1
+}

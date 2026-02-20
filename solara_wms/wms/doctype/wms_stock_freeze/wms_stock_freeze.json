@@ -1,0 +1,196 @@
+{
+  "actions": [],
+  "autoname": "WMS-FRZ-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "freeze_type",
+    "status",
+    "reason",
+    "section_break_scope",
+    "item_code",
+    "warehouse",
+    "column_break_scope",
+    "bin",
+    "batch_no",
+    "section_break_audit",
+    "frozen_by",
+    "frozen_at",
+    "column_break_audit",
+    "released_by",
+    "released_at",
+    "section_break_notes",
+    "notes"
+  ],
+  "fields": [
+    {
+      "fieldname": "freeze_type",
+      "fieldtype": "Select",
+      "label": "Freeze Type",
+      "options": "Freeze\nUnfreeze",
+      "default": "Freeze",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "ModernWMS: job_type (true=Freeze, false=Unfreeze)"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nActive\nReleased\nCancelled",
+      "default": "Draft",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "reason",
+      "fieldtype": "Small Text",
+      "label": "Reason",
+      "reqd": 1,
+      "description": "Why is stock being frozen/unfrozen?"
+    },
+    {
+      "fieldname": "section_break_scope",
+      "fieldtype": "Section Break",
+      "label": "Freeze Scope",
+      "description": "Specify at least one: item, warehouse, bin, or batch"
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "Item Code",
+      "options": "Item",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Freeze specific item (ModernWMS: sku_id)"
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "in_standard_filter": 1,
+      "description": "Freeze specific warehouse (ModernWMS: warehouse_id)"
+    },
+    {
+      "fieldname": "column_break_scope",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "bin",
+      "fieldtype": "Link",
+      "label": "Bin",
+      "options": "Warehouse Bin",
+      "description": "Freeze specific bin (ModernWMS: goods_location_id)"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Link",
+      "label": "Batch No",
+      "options": "Batch",
+      "description": "Freeze specific batch"
+    },
+    {
+      "fieldname": "section_break_audit",
+      "fieldtype": "Section Break",
+      "label": "Audit Trail"
+    },
+    {
+      "fieldname": "frozen_by",
+      "fieldtype": "Link",
+      "label": "Frozen By",
+      "options": "User",
+      "read_only": 1,
+      "description": "ModernWMS: handler"
+    },
+    {
+      "fieldname": "frozen_at",
+      "fieldtype": "Datetime",
+      "label": "Frozen At",
+      "read_only": 1,
+      "description": "ModernWMS: operation_time"
+    },
+    {
+      "fieldname": "column_break_audit",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "released_by",
+      "fieldtype": "Link",
+      "label": "Released By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "released_at",
+      "fieldtype": "Datetime",
+      "label": "Released At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Notes"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Stock Freeze",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 0
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

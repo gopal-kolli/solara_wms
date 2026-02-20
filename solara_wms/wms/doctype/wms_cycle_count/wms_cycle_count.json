@@ -1,0 +1,256 @@
+{
+  "actions": [],
+  "autoname": "WMS-CC-.#####",
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "count_name",
+    "status",
+    "count_type",
+    "warehouse",
+    "bin",
+    "scheduled_date",
+    "column_break_header",
+    "abc_class",
+    "count_frequency",
+    "last_count_date",
+    "assigned_to",
+    "counted_at",
+    "section_break_items",
+    "items",
+    "section_break_summary",
+    "total_items",
+    "items_with_variance",
+    "column_break_summary",
+    "total_variance_value",
+    "section_break_result",
+    "stock_reconciliation",
+    "column_break_result",
+    "wms_task",
+    "section_break_notes",
+    "notes",
+    "error_log"
+  ],
+  "fields": [
+    {
+      "fieldname": "count_name",
+      "fieldtype": "Data",
+      "label": "Count Name",
+      "description": "Optional descriptive name"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nIn Progress\nCompleted\nCancelled",
+      "default": "Draft",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "count_type",
+      "fieldtype": "Select",
+      "label": "Count Type",
+      "options": "Full\nABC-A\nABC-B\nABC-C\nRandom\nBin-Based",
+      "default": "Full",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Type of cycle count"
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "bin",
+      "fieldtype": "Link",
+      "label": "Bin",
+      "options": "Warehouse Bin",
+      "description": "Optional - count specific bin only"
+    },
+    {
+      "fieldname": "scheduled_date",
+      "fieldtype": "Date",
+      "label": "Scheduled Date",
+      "default": "Today"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "abc_class",
+      "fieldtype": "Select",
+      "label": "ABC Class",
+      "options": "\nA\nB\nC",
+      "description": "For ABC classification counts"
+    },
+    {
+      "fieldname": "count_frequency",
+      "fieldtype": "Select",
+      "label": "Count Frequency",
+      "options": "\nDaily\nWeekly\nMonthly\nQuarterly\nAnnual",
+      "description": "How often this count should be performed"
+    },
+    {
+      "fieldname": "last_count_date",
+      "fieldtype": "Date",
+      "label": "Last Count Date",
+      "read_only": 1
+    },
+    {
+      "fieldname": "assigned_to",
+      "fieldtype": "Link",
+      "label": "Assigned To",
+      "options": "User",
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "counted_at",
+      "fieldtype": "Datetime",
+      "label": "Counted At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "Count Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "WMS Cycle Count Item",
+      "description": "Items to be counted"
+    },
+    {
+      "fieldname": "section_break_summary",
+      "fieldtype": "Section Break",
+      "label": "Summary"
+    },
+    {
+      "fieldname": "total_items",
+      "fieldtype": "Int",
+      "label": "Total Items",
+      "read_only": 1
+    },
+    {
+      "fieldname": "items_with_variance",
+      "fieldtype": "Int",
+      "label": "Items with Variance",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_summary",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "total_variance_value",
+      "fieldtype": "Currency",
+      "label": "Total Variance Value",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_result",
+      "fieldtype": "Section Break",
+      "label": "Created Documents",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "stock_reconciliation",
+      "fieldtype": "Link",
+      "label": "Stock Reconciliation",
+      "options": "Stock Reconciliation",
+      "read_only": 1,
+      "description": "Auto-created if variances found"
+    },
+    {
+      "fieldname": "column_break_result",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "wms_task",
+      "fieldtype": "Link",
+      "label": "WMS Task",
+      "options": "WMS Task",
+      "read_only": 1,
+      "description": "Optional linked count task"
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Cycle Count",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 0,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Stock User",
+      "share": 0,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "count_name",
+  "track_changes": 1
+}

@@ -1,0 +1,17 @@
+[project]
+name = "solara_wms"
+authors = [
+    { name = "Gopal Kolli", email = "gopal@solara.in" }
+]
+description = "Warehouse Management System (WMS) for ERPNext - bin locations and directed warehouse tasks"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = []
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0"

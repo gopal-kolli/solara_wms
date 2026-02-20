@@ -1,0 +1,131 @@
+{
+  "actions": [],
+  "creation": "2026-02-20 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "item_code",
+    "item_name",
+    "column_break_1",
+    "ordered_qty",
+    "picked_qty",
+    "packed_qty",
+    "dispatched_qty",
+    "uom",
+    "section_break_2",
+    "batch_no",
+    "serial_no",
+    "column_break_3",
+    "weight",
+    "row_status",
+    "error_message"
+  ],
+  "fields": [
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "Item Code",
+      "options": "Item",
+      "in_list_view": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "label": "Item Name",
+      "read_only": 1,
+      "fetch_from": "item_code.item_name"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "ordered_qty",
+      "fieldtype": "Float",
+      "label": "Ordered Qty",
+      "description": "From Sales Order"
+    },
+    {
+      "fieldname": "picked_qty",
+      "fieldtype": "Float",
+      "label": "Picked Qty",
+      "in_list_view": 1,
+      "default": "0"
+    },
+    {
+      "fieldname": "packed_qty",
+      "fieldtype": "Float",
+      "label": "Packed Qty",
+      "default": "0",
+      "description": "ModernWMS: package_qty"
+    },
+    {
+      "fieldname": "dispatched_qty",
+      "fieldtype": "Float",
+      "label": "Dispatched Qty",
+      "in_list_view": 1,
+      "default": "0"
+    },
+    {
+      "fieldname": "uom",
+      "fieldtype": "Link",
+      "label": "UOM",
+      "options": "UOM",
+      "fetch_from": "item_code.stock_uom"
+    },
+    {
+      "fieldname": "section_break_2",
+      "fieldtype": "Section Break",
+      "label": "Tracking"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Link",
+      "label": "Batch No",
+      "options": "Batch"
+    },
+    {
+      "fieldname": "serial_no",
+      "fieldtype": "Small Text",
+      "label": "Serial No"
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "weight",
+      "fieldtype": "Float",
+      "label": "Weight (kg)",
+      "description": "Per-item weight in kilograms"
+    },
+    {
+      "fieldname": "row_status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nPicked\nPacked\nDispatched",
+      "default": "Pending",
+      "in_list_view": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "error_message",
+      "fieldtype": "Small Text",
+      "label": "Error Message",
+      "read_only": 1
+    }
+  ],
+  "istable": 1,
+  "links": [],
+  "modified": "2026-02-20 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Dispatch Item",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 0
+}

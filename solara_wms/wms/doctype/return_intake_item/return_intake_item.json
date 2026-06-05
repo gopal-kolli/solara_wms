@@ -1,0 +1,141 @@
+{
+  "actions": [],
+  "creation": "2026-06-05 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "item_code",
+    "item_name",
+    "column_break_1",
+    "return_qty",
+    "condition",
+    "section_break_validation",
+    "delivered_qty",
+    "already_returned_qty",
+    "max_returnable",
+    "target_warehouse",
+    "column_break_2",
+    "source_dn",
+    "source_dn_detail",
+    "against_sales_order",
+    "so_detail",
+    "against_sales_invoice"
+  ],
+  "fields": [
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "SKU",
+      "options": "Item",
+      "in_list_view": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "label": "Item Name",
+      "read_only": 1,
+      "fetch_from": "item_code.item_name",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "return_qty",
+      "fieldtype": "Float",
+      "label": "Return Qty",
+      "in_list_view": 1,
+      "reqd": 1,
+      "description": "Units physically returned (enter as a positive number)"
+    },
+    {
+      "fieldname": "condition",
+      "fieldtype": "Select",
+      "label": "Condition",
+      "options": "Good\nDamaged\nUsed",
+      "in_list_view": 1,
+      "reqd": 1,
+      "description": "Good → Main Warehouse (resellable). Damaged/Used → QC / Rejected."
+    },
+    {
+      "fieldname": "section_break_validation",
+      "fieldtype": "Section Break",
+      "label": "Validation (auto-filled)",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "delivered_qty",
+      "fieldtype": "Float",
+      "label": "Delivered Qty",
+      "read_only": 1,
+      "description": "Qty originally delivered on the source invoice/DN"
+    },
+    {
+      "fieldname": "already_returned_qty",
+      "fieldtype": "Float",
+      "label": "Already Returned",
+      "read_only": 1
+    },
+    {
+      "fieldname": "max_returnable",
+      "fieldtype": "Float",
+      "label": "Max Returnable",
+      "read_only": 1
+    },
+    {
+      "fieldname": "target_warehouse",
+      "fieldtype": "Link",
+      "label": "Target Warehouse",
+      "options": "Warehouse",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "source_dn",
+      "fieldtype": "Data",
+      "label": "Source DN",
+      "read_only": 1
+    },
+    {
+      "fieldname": "source_dn_detail",
+      "fieldtype": "Data",
+      "label": "Source DN Item",
+      "read_only": 1
+    },
+    {
+      "fieldname": "against_sales_order",
+      "fieldtype": "Data",
+      "label": "Sales Order",
+      "read_only": 1
+    },
+    {
+      "fieldname": "so_detail",
+      "fieldtype": "Data",
+      "label": "SO Item",
+      "read_only": 1
+    },
+    {
+      "fieldname": "against_sales_invoice",
+      "fieldtype": "Data",
+      "label": "Sales Invoice",
+      "read_only": 1
+    }
+  ],
+  "istable": 1,
+  "links": [],
+  "modified": "2026-06-05 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "Return Intake Item",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 0
+}

@@ -1,0 +1,16 @@
+[
+ {
+  "doctype": "Role",
+  "name": "Returns Manager",
+  "role_name": "Returns Manager",
+  "desk_access": 1,
+  "two_factor_auth": 0
+ },
+ {
+  "doctype": "Role",
+  "name": "HQ Returns Reviewer",
+  "role_name": "HQ Returns Reviewer",
+  "desk_access": 1,
+  "two_factor_auth": 0
+ }
+]

@@ -1,0 +1,45 @@
+{
+  "actions": [],
+  "creation": "2026-06-05 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "video",
+    "drive_link",
+    "note"
+  ],
+  "fields": [
+    {
+      "fieldname": "video",
+      "fieldtype": "Attach",
+      "label": "QC Video / Photo",
+      "in_list_view": 1,
+      "description": "Upload the QC video clip. Keep clips short — Frappe Cloud storage is metered. For large files, paste a Google Drive link instead."
+    },
+    {
+      "fieldname": "drive_link",
+      "fieldtype": "Data",
+      "label": "Drive Link",
+      "options": "URL",
+      "in_list_view": 1,
+      "description": "Google Drive link (use for large videos instead of uploading)"
+    },
+    {
+      "fieldname": "note",
+      "fieldtype": "Data",
+      "label": "Note"
+    }
+  ],
+  "istable": 1,
+  "links": [],
+  "modified": "2026-06-05 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "Return Intake Video",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 0
+}

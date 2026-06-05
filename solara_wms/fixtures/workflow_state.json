@@ -1,0 +1,8 @@
+[
+ {
+  "doctype": "Workflow State",
+  "name": "Pending HQ Review",
+  "workflow_state_name": "Pending HQ Review",
+  "style": "Warning"
+ }
+]

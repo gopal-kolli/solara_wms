@@ -1,0 +1,68 @@
+[
+ {
+  "doctype": "Workflow",
+  "name": "Return Intake Approval",
+  "workflow_name": "Return Intake Approval",
+  "document_type": "Return Intake",
+  "is_active": 1,
+  "override_status": 0,
+  "send_email_alert": 0,
+  "workflow_state_field": "workflow_state",
+  "states": [
+   {
+    "doctype": "Workflow Document State",
+    "state": "Draft",
+    "doc_status": "0",
+    "allow_edit": "Returns Manager",
+    "is_optional_state": 0
+   },
+   {
+    "doctype": "Workflow Document State",
+    "state": "Pending HQ Review",
+    "doc_status": "0",
+    "allow_edit": "HQ Returns Reviewer",
+    "is_optional_state": 0
+   },
+   {
+    "doctype": "Workflow Document State",
+    "state": "Approved",
+    "doc_status": "1",
+    "allow_edit": "HQ Returns Reviewer",
+    "is_optional_state": 0
+   },
+   {
+    "doctype": "Workflow Document State",
+    "state": "Rejected",
+    "doc_status": "1",
+    "allow_edit": "HQ Returns Reviewer",
+    "is_optional_state": 0
+   }
+  ],
+  "transitions": [
+   {
+    "doctype": "Workflow Transition",
+    "state": "Draft",
+    "action": "Submit for Review",
+    "next_state": "Pending HQ Review",
+    "allowed": "Returns Manager",
+    "allow_self_approval": 1
+   },
+   {
+    "doctype": "Workflow Transition",
+    "state": "Pending HQ Review",
+    "action": "Approve",
+    "next_state": "Approved",
+    "allowed": "HQ Returns Reviewer",
+    "allow_self_approval": 1
+   },
+   {
+    "doctype": "Workflow Transition",
+    "state": "Pending HQ Review",
+    "action": "Reject",
+    "next_state": "Rejected",
+    "allowed": "HQ Returns Reviewer",
+    "allow_self_approval": 1
+   }
+  ]
+ }
+]

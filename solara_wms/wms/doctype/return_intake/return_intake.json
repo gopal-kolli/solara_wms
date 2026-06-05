@@ -1,0 +1,231 @@
+{
+  "actions": [],
+  "autoname": "RET-INTK-.YYYY.-.#####",
+  "creation": "2026-06-05 12:00:00",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "is_submittable": 1,
+  "field_order": [
+    "workflow_state",
+    "sales_invoice",
+    "customer",
+    "customer_name",
+    "company",
+    "column_break_header",
+    "channel",
+    "posting_date",
+    "linked_delivery_notes",
+    "update_stock_si",
+    "section_break_items",
+    "items",
+    "section_break_videos",
+    "qc_videos",
+    "section_break_result",
+    "return_delivery_notes",
+    "return_dn_submitted",
+    "column_break_result",
+    "error_log",
+    "remarks",
+    "amended_from"
+  ],
+  "fields": [
+    {
+      "fieldname": "workflow_state",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nPending HQ Review\nApproved\nRejected",
+      "default": "Draft",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "sales_invoice",
+      "fieldtype": "Link",
+      "label": "Original Sales Invoice",
+      "options": "Sales Invoice",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "The Atlas Sales Invoice the goods are being returned against"
+    },
+    {
+      "fieldname": "customer",
+      "fieldtype": "Link",
+      "label": "Customer",
+      "options": "Customer",
+      "read_only": 1,
+      "fetch_from": "sales_invoice.customer",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "customer_name",
+      "fieldtype": "Data",
+      "label": "Customer Name",
+      "read_only": 1,
+      "fetch_from": "sales_invoice.customer_name"
+    },
+    {
+      "fieldname": "company",
+      "fieldtype": "Link",
+      "label": "Company",
+      "options": "Company",
+      "read_only": 1,
+      "fetch_from": "sales_invoice.company"
+    },
+    {
+      "fieldname": "column_break_header",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "channel",
+      "fieldtype": "Select",
+      "label": "Channel",
+      "options": "\nShopify\nBlinkit\nZepto\nAmazon/Retailez\nFlipkart\nOther",
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "posting_date",
+      "fieldtype": "Date",
+      "label": "Return Received Date",
+      "default": "Today",
+      "reqd": 1
+    },
+    {
+      "fieldname": "linked_delivery_notes",
+      "fieldtype": "Small Text",
+      "label": "Linked Delivery Note(s)",
+      "read_only": 1,
+      "description": "Source DNs found for this invoice (audit/reference)"
+    },
+    {
+      "fieldname": "update_stock_si",
+      "fieldtype": "Check",
+      "label": "Original SI carried stock (no separate DN)",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_items",
+      "fieldtype": "Section Break",
+      "label": "Returned Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "Return Intake Item",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_break_videos",
+      "fieldtype": "Section Break",
+      "label": "QC Evidence"
+    },
+    {
+      "fieldname": "qc_videos",
+      "fieldtype": "Table",
+      "label": "QC Videos",
+      "options": "Return Intake Video",
+      "description": "At least one video (uploaded clip or Drive link) is required before submitting for review"
+    },
+    {
+      "fieldname": "section_break_result",
+      "fieldtype": "Section Break",
+      "label": "Result",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "return_delivery_notes",
+      "fieldtype": "Small Text",
+      "label": "Return Delivery Note(s)",
+      "read_only": 1,
+      "description": "Auto-created on HQ approval"
+    },
+    {
+      "fieldname": "return_dn_submitted",
+      "fieldtype": "Check",
+      "label": "Return DN Submitted",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_result",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Small Text",
+      "label": "Error Log",
+      "read_only": 1
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Remarks"
+    },
+    {
+      "fieldname": "amended_from",
+      "fieldtype": "Link",
+      "label": "Amended From",
+      "options": "Return Intake",
+      "read_only": 1,
+      "no_copy": 1,
+      "print_hide": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "links": [],
+  "modified": "2026-06-05 12:00:00",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "Return Intake",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "submit": 1,
+      "cancel": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Returns Manager",
+      "share": 1,
+      "submit": 1,
+      "write": 1
+    },
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "HQ Returns Reviewer",
+      "share": 1,
+      "submit": 1,
+      "cancel": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

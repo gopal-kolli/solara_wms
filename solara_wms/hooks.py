@@ -24,7 +24,11 @@ required_apps = ["frappe", "erpnext"]
 
 # Fixtures
 # --------
-# fixtures = []
+fixtures = [
+    {"dt": "Role", "filters": [["name", "in", ["Returns Manager", "HQ Returns Reviewer"]]]},
+    {"dt": "Workflow State", "filters": [["name", "in", ["Pending HQ Review"]]]},
+    {"dt": "Workflow", "filters": [["name", "in", ["Return Intake Approval"]]]},
+]
 
 # Document Events
 # ---------------

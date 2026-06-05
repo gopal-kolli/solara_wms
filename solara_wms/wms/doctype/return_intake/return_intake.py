@@ -65,30 +65,47 @@ class ReturnIntake(Document):
         delivered_total = defaultdict(float)
         source_ref = {}
         dn_names = set()
+        fields = ["parent", "name", "item_code", "qty",
+                  "against_sales_order", "so_detail", "against_sales_invoice"]
 
-        # DNs that reference this SI directly (DN created from SI).
-        dn_items = frappe.get_all(
-            "Delivery Note Item",
-            filters={"against_sales_invoice": si.name, "docstatus": 1},
-            fields=["parent", "name", "item_code", "qty",
-                    "against_sales_order", "so_detail", "against_sales_invoice"],
-        )
-        # DNs referenced by this SI's items (SI created from DN).
+        # Collect candidate Delivery Note rows from three linkage paths, deduped by row name.
+        dn_items, seen_rows = [], set()
+
+        def _add(rows):
+            for di in rows:
+                if di.name not in seen_rows:
+                    seen_rows.add(di.name)
+                    dn_items.append(di)
+
+        # Path 1: DN created from SI (DN row references the SI).
+        _add(frappe.get_all("Delivery Note Item",
+                            filters={"against_sales_invoice": si.name, "docstatus": 1},
+                            fields=fields))
+        # Path 2: SI created from DN (SI row references the DN).
         si_dn_names = {it.delivery_note for it in si.items if getattr(it, "delivery_note", None)}
         if si_dn_names:
-            dn_items += frappe.get_all(
-                "Delivery Note Item",
-                filters={"parent": ["in", list(si_dn_names)], "docstatus": 1},
-                fields=["parent", "name", "item_code", "qty",
-                        "against_sales_order", "so_detail", "against_sales_invoice"],
-            )
+            _add(frappe.get_all("Delivery Note Item",
+                                filters={"parent": ["in", list(si_dn_names)], "docstatus": 1},
+                                fields=fields))
+        # Path 3: shared Sales Order bridge (Shopify: SI and DN both reference the SO).
+        so_names = {it.sales_order for it in si.items if getattr(it, "sales_order", None)}
+        if so_names:
+            _add(frappe.get_all("Delivery Note Item",
+                                filters={"against_sales_order": ["in", list(so_names)], "docstatus": 1},
+                                fields=fields))
+
+        # Drop rows whose parent DN is itself a return.
+        if dn_items:
+            parents = list({di.parent for di in dn_items})
+            return_parents = set(frappe.get_all(
+                "Delivery Note",
+                filters={"name": ["in", parents], "is_return": 1},
+                pluck="name",
+            ))
+            dn_items = [di for di in dn_items if di.parent not in return_parents]
 
         if dn_items:
-            seen_rows = set()
             for di in dn_items:
-                if di.name in seen_rows:
-                    continue
-                seen_rows.add(di.name)
                 dn_names.add(di.parent)
                 delivered_total[di.item_code] += abs(flt(di.qty))
                 cur = source_ref.get(di.item_code)
@@ -165,7 +182,14 @@ class ReturnIntake(Document):
         abbr = frappe.get_cached_value("Company", self.company, "abbr")
         main_wh = f"Main Warehouse - {abbr}"
         qc_wh = f"QC / Rejected - {abbr}"
-        for wh in (main_wh, qc_wh):
+        # Require only the warehouse(s) the actual line conditions need.
+        conditions = {row.condition for row in self.items}
+        needed = set()
+        if "Good" in conditions:
+            needed.add(main_wh)
+        if conditions & {"Damaged", "Used"}:
+            needed.add(qc_wh)
+        for wh in needed:
             if not frappe.db.exists("Warehouse", wh):
                 frappe.throw(_("Warehouse {0} does not exist on this site.").format(wh))
 

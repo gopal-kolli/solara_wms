@@ -307,12 +307,30 @@ class ReturnIntake(Document):
 
             ret.posting_date = self.posting_date
             ret.set_posting_time = 1
+            self._clear_stale_links(ret)
             ret.flags.ignore_permissions = True
             ret.insert(ignore_permissions=True)
             ret.submit()
             created.append(ret.name)
 
         return created
+
+    @staticmethod
+    def _clear_stale_links(ret):
+        """Null out header link fields the mapper copied from the original DN that
+        no longer resolve (renamed/deleted Address or Contact records), so submit
+        doesn't fail link validation on stale data."""
+        link_fields = {
+            "customer_address": "Address",
+            "shipping_address_name": "Address",
+            "company_address": "Address",
+            "dispatch_address_name": "Address",
+            "contact_person": "Contact",
+        }
+        for field, dt in link_fields.items():
+            val = ret.get(field)
+            if val and not frappe.db.exists(dt, val):
+                ret.set(field, None)
 
     def _create_stock_entry(self):
         """Fallback for SIs booked with update_stock=1 (no DN): bring stock back

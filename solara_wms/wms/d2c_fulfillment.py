@@ -81,7 +81,19 @@ def _log(title, message):
 
 def release_d2c_shipments():
     """Scheduler entry (*/15). Auto-create + submit Delivery Notes for eligible
-    single-AWB Shopify Sales Orders. Idempotent, gated, per-order isolated."""
+    single-AWB Shopify Sales Orders. Idempotent, gated, per-order isolated.
+
+    The whole body is wrapped so a defect here can NEVER propagate into the
+    shared scheduler runner (protects every other app's jobs, incl. Amazon DF)."""
+    try:
+        return _release_d2c_shipments()
+    except Exception:
+        frappe.db.rollback()
+        _log("D2C Release", "FATAL (swallowed): " + frappe.get_traceback())
+        return None
+
+
+def _release_d2c_shipments():
     settings = _settings()
     if not cint(settings.get("release_enabled")):
         return
@@ -234,7 +246,17 @@ def _make_and_submit_dn(so_name, warehouse, res):
 def fetch_d2c_labels():
     """Scheduler entry (*/15). Download shipping_label PDFs for recently-submitted
     SHP DNs and attach them as permanent private Files, so prepare_todays_shipments
-    never races the presigned-URL expiry."""
+    never races the presigned-URL expiry. Wrapped so a defect can never wedge the
+    shared scheduler runner (protects Amazon DF's jobs on the same bench)."""
+    try:
+        return _fetch_d2c_labels()
+    except Exception:
+        frappe.db.rollback()
+        _log("D2C Label Fetch", "FATAL (swallowed): " + frappe.get_traceback())
+        return None
+
+
+def _fetch_d2c_labels():
     settings = _settings()
     if not cint(settings.get("label_fetch_enabled")):
         return

@@ -1,0 +1,181 @@
+{
+ "actions": [],
+ "creation": "2026-07-10 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "gates_section",
+  "release_enabled",
+  "label_fetch_enabled",
+  "dry_run",
+  "column_break_gates",
+  "require_stock",
+  "enforce_cutoff_on_release",
+  "cutoff_hour",
+  "scope_section",
+  "so_series_prefix",
+  "source_warehouse",
+  "lookback_days",
+  "column_break_scope",
+  "release_batch_size",
+  "max_orders_per_run",
+  "phase2_section",
+  "multibox_skus",
+  "actions_section",
+  "run_release_now",
+  "prepare_now"
+ ],
+ "fields": [
+  {
+   "fieldname": "gates_section",
+   "fieldtype": "Section Break",
+   "label": "Automation Gates"
+  },
+  {
+   "default": "0",
+   "description": "Master switch for the */15 SO→DN release job. OFF = fully manual.",
+   "fieldname": "release_enabled",
+   "fieldtype": "Check",
+   "label": "Release Job Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Download + attach ClickPost label PDFs to submitted D2C DNs (*/15).",
+   "fieldname": "label_fetch_enabled",
+   "fieldtype": "Check",
+   "label": "Label Fetch Enabled"
+  },
+  {
+   "default": "1",
+   "description": "When ON, the release job selects + logs eligible orders but creates NO Delivery Notes. Turn OFF to go live.",
+   "fieldname": "dry_run",
+   "fieldtype": "Check",
+   "label": "Dry Run (select only, no DN)"
+  },
+  {
+   "fieldname": "column_break_gates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Only release orders whose every line has physical stock (actual_qty) at the source warehouse.",
+   "fieldname": "require_stock",
+   "fieldtype": "Check",
+   "label": "Require Stock"
+  },
+  {
+   "default": "0",
+   "description": "If ON, the release job stops creating DNs once the daily cutoff hour is reached (orders roll to next day). Default OFF = ship immediately.",
+   "fieldname": "enforce_cutoff_on_release",
+   "fieldtype": "Check",
+   "label": "Enforce Cutoff On Release"
+  },
+  {
+   "default": "16",
+   "description": "Daily batch cutoff hour (24h, IST). 16 = 4 PM.",
+   "fieldname": "cutoff_hour",
+   "fieldtype": "Int",
+   "label": "Cutoff Hour"
+  },
+  {
+   "fieldname": "scope_section",
+   "fieldtype": "Section Break",
+   "label": "Selection Scope"
+  },
+  {
+   "default": "SHP",
+   "description": "Sales Order name prefix to scope selection (Shopify D2C = SHP).",
+   "fieldname": "so_series_prefix",
+   "fieldtype": "Data",
+   "label": "SO Series Prefix"
+  },
+  {
+   "default": "Main Warehouse - WTBBPL",
+   "fieldname": "source_warehouse",
+   "fieldtype": "Link",
+   "label": "Source Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "default": "3",
+   "description": "How many days back to consider Sales Orders (by transaction_date).",
+   "fieldname": "lookback_days",
+   "fieldtype": "Int",
+   "label": "Lookback Days"
+  },
+  {
+   "fieldname": "column_break_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "200",
+   "description": "Max candidate SOs pulled per */15 run.",
+   "fieldname": "release_batch_size",
+   "fieldtype": "Int",
+   "label": "Release Batch Size"
+  },
+  {
+   "default": "200",
+   "description": "Hard safety cap on DNs actually created per run.",
+   "fieldname": "max_orders_per_run",
+   "fieldtype": "Int",
+   "label": "Max Orders Per Run"
+  },
+  {
+   "fieldname": "phase2_section",
+   "fieldtype": "Section Break",
+   "label": "Phase 2 — Multi-box Exclusions"
+  },
+  {
+   "description": "Comma / newline separated SKUs that ship in >1 box. These are EXCLUDED from auto-release and stay on the manual sheet until Phase 2. e.g. SOL-AF-501, SOL-AFO-501-JUC-121, SOL-JUC-121",
+   "fieldname": "multibox_skus",
+   "fieldtype": "Small Text",
+   "label": "Multi-box SKUs"
+  },
+  {
+   "fieldname": "actions_section",
+   "fieldtype": "Section Break",
+   "label": "Manual Actions"
+  },
+  {
+   "description": "Run the release job once now (respects Dry Run + gates).",
+   "fieldname": "run_release_now",
+   "fieldtype": "Button",
+   "label": "Run Release Now"
+  },
+  {
+   "description": "Build today's pick list + combined labels PDF.",
+   "fieldname": "prepare_now",
+   "fieldtype": "Button",
+   "label": "Prepare Today's Shipments"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-10 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "D2C Fulfillment Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Returns Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

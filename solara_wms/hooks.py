@@ -40,8 +40,19 @@ doc_events = {
 
 # Scheduled Tasks
 # ---------------
-# scheduler_events = {}
+scheduler_events = {
+    "cron": {
+        # D2C fulfillment — both jobs are internally gated (no-op unless enabled
+        # in D2C Fulfillment Settings), so wiring them here is safe by default.
+        "*/15 * * * *": [
+            "solara_wms.wms.d2c_fulfillment.release_d2c_shipments",
+            "solara_wms.wms.d2c_fulfillment.fetch_d2c_labels",
+        ],
+    },
+}
 
 # Override Methods
 # ---------------
-# override_whitelisted_methods = {}
+override_whitelisted_methods = {
+    "solara_wms.d2c.prepare_todays_shipments": "solara_wms.wms.d2c_fulfillment.prepare_todays_shipments",
+}

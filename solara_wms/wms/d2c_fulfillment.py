@@ -109,11 +109,12 @@ def _release_d2c_shipments():
     if result["created"] or result["failed"]:
         _log(
             "D2C Release",
-            "created={created} skipped_multibox={skipped_multibox} "
-            "skipped_nostock={skipped_nostock} skipped_dn_exists={skipped_dn_exists} "
-            "failed={failed} dry_run={dry_run}\nfailures={failures}".format(
-                **result, dry_run=cint(settings.get("dry_run")),
-                failures=json.dumps(result["failures"][:20]),
+            "created={0} skipped_multibox={1} skipped_nostock={2} "
+            "skipped_dn_exists={3} failed={4} dry_run={5}\nfailures={6}".format(
+                result["created"], result["skipped_multibox"],
+                result["skipped_nostock"], result["skipped_dn_exists"],
+                result["failed"], cint(settings.get("dry_run")),
+                json.dumps(result["failures"][:20]),
             ),
         )
     return result

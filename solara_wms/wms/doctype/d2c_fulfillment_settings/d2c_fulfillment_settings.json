@@ -90,7 +90,6 @@
    "label": "SO Series Prefix"
   },
   {
-   "default": "Main Warehouse - WTBBPL",
    "fieldname": "source_warehouse",
    "fieldtype": "Link",
    "label": "Source Warehouse",

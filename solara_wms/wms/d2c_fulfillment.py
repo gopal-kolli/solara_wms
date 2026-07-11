@@ -28,8 +28,10 @@ Pipeline (all gated by the `D2C Fulfillment Settings` single doctype):
           ├─ Pick List PDF  (SKU-summary section + per-order pack section)
           └─ Combined Labels PDF (attached label PDFs merged in pack sequence)
 
-Phase 1 handles single-AWB orders only. Multi-box SKUs (config `multibox_skus`)
-are excluded from auto-release and stay on the manual sheet until Phase 2.
+Phase 1 handles single-parcel orders only: the order's box count (per-SKU
+boxes-per-unit map `sku_box_config`; nestable accessories = 0, combos = 2+;
+qty multiplies) must equal exactly 1. Multi-box orders stay on the manual
+sheet until Phase 2.
 
 Reversibility is already handled by the installed base: "Cancel Clickpost
 Shipment" voids the AWB on DN cancel. This module never cancels or deletes.
@@ -58,10 +60,25 @@ def _settings():
     return frappe.get_cached_doc(SETTINGS_DOCTYPE)
 
 
-def _multibox_set(settings):
-    """Parse the comma/newline-separated multi-box SKU list into an upper-cased set."""
-    raw = (settings.get("multibox_skus") or "").replace("\n", ",")
-    return {tok.strip().upper() for tok in raw.split(",") if tok.strip()}
+def _box_config(settings):
+    """Parse the sku_box_config JSON map: SKU -> boxes shipped per unit.
+    0 = nestable accessory (packs inside the parent's box), 1 = own box,
+    2+ = true multi-box combo (e.g. AFO+juicer). Unknown SKUs default to 1."""
+    try:
+        raw = json.loads(settings.get("sku_box_config") or "{}")
+        return {str(k).strip().upper(): cint(v) for k, v in raw.items()}
+    except Exception:
+        _log("D2C Config", "sku_box_config is not valid JSON — treating as empty")
+        return {}
+
+
+def _order_box_count(so, box_map):
+    """Boxes this order ships in: sum of boxes-per-unit x qty over lines.
+    An all-nestable order (sum 0) still ships as one parcel -> counts as 1."""
+    total = 0
+    for it in so.items:
+        total += box_map.get((it.item_code or "").upper(), 1) * cint(it.qty)
+    return max(total, 1)
 
 
 def _source_warehouse(settings):
@@ -106,14 +123,17 @@ def _release_d2c_shipments():
             return
 
     result = _run_release(settings, dry_run=cint(settings.get("dry_run")))
-    if result["created"] or result["failed"]:
+    if result["created"] or result["failed"] or result["skipped_bad_data"]:
         _log(
             "D2C Release",
             "created={0} skipped_multibox={1} skipped_nostock={2} "
-            "skipped_dn_exists={3} failed={4} dry_run={5}\nfailures={6}".format(
+            "skipped_dn_exists={3} skipped_bad_data={4} failed={5} dry_run={6}\n"
+            "bad_data_sos={7}\nfailures={8}".format(
                 result["created"], result["skipped_multibox"],
                 result["skipped_nostock"], result["skipped_dn_exists"],
-                result["failed"], cint(settings.get("dry_run")),
+                result["skipped_bad_data"], result["failed"],
+                cint(settings.get("dry_run")),
+                json.dumps(result["bad_data_sos"][:20]),
                 json.dumps(result["failures"][:20]),
             ),
         )
@@ -157,7 +177,7 @@ def _run_release(settings, dry_run=False):
     limit = cint(settings.get("release_batch_size")) or 200
     max_orders = cint(settings.get("max_orders_per_run")) or limit
     warehouse = _source_warehouse(settings)
-    multibox = _multibox_set(settings)
+    box_map = _box_config(settings)
     require_stock = cint(settings.get("require_stock"))
 
     candidates = _candidate_sos(settings, limit)
@@ -166,6 +186,7 @@ def _run_release(settings, dry_run=False):
     res = {
         "created": 0, "failed": 0,
         "skipped_multibox": 0, "skipped_nostock": 0, "skipped_dn_exists": 0,
+        "skipped_bad_data": 0, "bad_data_sos": [],
         "created_dns": [], "failures": [],
     }
 
@@ -184,8 +205,17 @@ def _run_release(settings, dry_run=False):
             res["failures"].append({"so": so_name, "err": "load: " + str(e)})
             continue
 
-        # Gate 1: no multi-box SKU (Phase 2 territory — leave on the manual sheet).
-        if any((it.item_code or "").upper() in multibox for it in so.items):
+        # Gate 0: malformed data — a line without item_code makes make_delivery_note
+        # throw on EVERY retry. Skip and surface so ops fix or cancel the SO.
+        if any(not it.item_code for it in so.items):
+            res["skipped_bad_data"] += 1
+            res["bad_data_sos"].append(so_name)
+            continue
+
+        # Gate 1: single-parcel orders only. Nestable accessories count 0 boxes
+        # (they ride inside the parent's box); true combos count 2+. Multi-box
+        # orders are Phase 2 territory — they stay on the manual sheet.
+        if _order_box_count(so, box_map) != 1:
             res["skipped_multibox"] += 1
             continue
 
@@ -263,12 +293,13 @@ def _fetch_d2c_labels():
         return
 
     lookback = cint(settings.get("lookback_days")) or 3
-    prefix = _prefix(settings)
 
+    # D2C DNs are identified by their Shopify linkage, not by naming series
+    # (series differs across sites: SHPDN27- on LIVE, DN-26- on TEST).
     dns = frappe.get_all(
         "Delivery Note",
         filters={
-            "name": ["like", prefix + "%"],
+            "shopify_order_id": ["is", "set"],
             "docstatus": 1,
             "posting_date": [">=", add_days(nowdate(), -lookback)],
             "shipping_label": ["is", "set"],
@@ -358,17 +389,16 @@ def _label_pdf_bytes(dn_name, shipping_label_url):
 
 # ─── PREPARE TODAY'S SHIPMENTS: pick list + combined labels ───────
 
-def _todays_labelled_dns(settings, on_date):
-    """Submitted SHP DNs for the date that already have a label URL, in a stable
+def _todays_d2c_dns(settings, on_date):
+    """ALL submitted D2C DNs for the date (labelled or not — unlabelled ones
+    surface in missing_labels rather than silently vanishing), in a stable
     pack sequence: batch identical single-SKU orders together, then by AWB."""
-    prefix = _prefix(settings)
     dns = frappe.get_all(
         "Delivery Note",
         filters={
-            "name": ["like", prefix + "%"],
+            "shopify_order_id": ["is", "set"],
             "docstatus": 1,
             "posting_date": on_date,
-            "shipping_label": ["is", "set"],
         },
         fields=["name", "awb_number", "courier_partner", "customer",
                 "customer_name", "shopify_order_id", "shipping_label"],
@@ -397,7 +427,7 @@ def prepare_todays_shipments(on_date=None):
     settings = _settings()
     on_date = getdate(on_date) if on_date else getdate(nowdate())
 
-    dns = _todays_labelled_dns(settings, on_date)
+    dns = _todays_d2c_dns(settings, on_date)
     summary = {
         "date": str(on_date),
         "orders": len(dns),
@@ -407,7 +437,7 @@ def prepare_todays_shipments(on_date=None):
         "labels_pdf_url": None,
     }
     if not dns:
-        summary["message"] = "No labelled D2C Delivery Notes for {0}.".format(on_date)
+        summary["message"] = "No D2C Delivery Notes for {0}.".format(on_date)
         return summary
 
     pick_url = _build_pick_list_pdf(dns, on_date)
@@ -518,7 +548,10 @@ def _build_combined_labels_pdf(dns, on_date):
 def _save_output_file(file_name, content):
     """Save a generated PDF as a private File and return its URL. Overwrites the
     prior same-name output so re-running Prepare doesn't pile up duplicates."""
-    for old in frappe.get_all("File", filters={"file_name": file_name, "attached_to_name": ""}):
+    for old in frappe.get_all("File", filters={"file_name": file_name},
+                              fields=["name", "attached_to_name"]):
+        if old.attached_to_name:
+            continue  # never touch files attached to documents
         try:
             frappe.delete_doc("File", old.name, ignore_permissions=True, force=True)
         except Exception:

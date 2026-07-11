@@ -20,7 +20,7 @@
   "release_batch_size",
   "max_orders_per_run",
   "phase2_section",
-  "multibox_skus",
+  "sku_box_config",
   "actions_section",
   "run_release_now",
   "prepare_now"
@@ -124,13 +124,14 @@
   {
    "fieldname": "phase2_section",
    "fieldtype": "Section Break",
-   "label": "Phase 2 — Multi-box Exclusions"
+   "label": "Parcel Model (boxes per SKU)"
   },
   {
-   "description": "Comma / newline separated SKUs that ship in >1 box. These are EXCLUDED from auto-release and stay on the manual sheet until Phase 2. e.g. SOL-AF-501, SOL-AFO-501-JUC-121, SOL-JUC-121",
-   "fieldname": "multibox_skus",
-   "fieldtype": "Small Text",
-   "label": "Multi-box SKUs"
+   "description": "JSON map: SKU → boxes shipped per unit. 0 = nestable accessory (packs inside the parent box, e.g. spatula/recipe book/silicone basket), 1 = own box, 2+ = true multi-box combo (e.g. AFO+juicer). Unknown SKUs default to 1. Orders releasing via Phase 1 must total exactly 1 box (qty counts: 2× airfryer = 2 boxes → excluded). Example: {\"SOL-AFO-501-JUC-121\": 2, \"SOL-CKW-WSPA-101\": 0, \"SOL-AF-RCP-101\": 0}",
+   "fieldname": "sku_box_config",
+   "fieldtype": "Code",
+   "label": "SKU Box Config (JSON)",
+   "options": "JSON"
   },
   {
    "fieldname": "actions_section",

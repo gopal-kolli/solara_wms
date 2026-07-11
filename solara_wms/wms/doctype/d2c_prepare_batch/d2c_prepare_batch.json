@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "autoname": "format:D2CB-{date}-{###}",
+ "creation": "2026-07-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "date",
+  "batch_no",
+  "column_break_1",
+  "orders",
+  "units",
+  "files_section",
+  "pick_list_url",
+  "labels_pdf_url",
+  "missing_labels",
+  "dns_section",
+  "delivery_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Batch No (within day)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "orders",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Orders",
+   "read_only": 1
+  },
+  {
+   "fieldname": "units",
+   "fieldtype": "Float",
+   "label": "Units",
+   "precision": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "files_section",
+   "fieldtype": "Section Break",
+   "label": "Output Files"
+  },
+  {
+   "fieldname": "pick_list_url",
+   "fieldtype": "Data",
+   "label": "Pick List URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "labels_pdf_url",
+   "fieldtype": "Data",
+   "label": "Labels PDF URL",
+   "read_only": 1
+  },
+  {
+   "description": "Orders in this batch whose label PDF could not be resolved at prepare time.",
+   "fieldname": "missing_labels",
+   "fieldtype": "Small Text",
+   "label": "Missing Labels",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dns_section",
+   "fieldtype": "Section Break",
+   "label": "Delivery Notes in Batch"
+  },
+  {
+   "fieldname": "delivery_notes",
+   "fieldtype": "Table",
+   "label": "Delivery Notes",
+   "options": "D2C Prepare Batch DN",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-07-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "D2C Prepare Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Returns Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

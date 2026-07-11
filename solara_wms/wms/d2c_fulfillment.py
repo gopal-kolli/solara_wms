@@ -365,19 +365,49 @@ def _download_and_attach_label(dn_name, url):
         return False
 
 
-def _label_pdf_bytes(dn_name, shipping_label_url):
-    """Return label PDF bytes: prefer the attached File, fall back to a live download."""
+def _as_pdf_bytes(data):
+    """Coerce File content to raw bytes (get_content can return str on some
+    storage backends, which breaks PdfReader(BytesIO(...)))."""
+    if data is None:
+        return None
+    if isinstance(data, bytes):
+        return data
+    if isinstance(data, str):
+        return data.encode("latin-1", "ignore")
+    return None
+
+
+def _read_attached_label(dn_name):
+    """Read the attached label File's bytes, robust across storage backends:
+    get_content(), then a direct read of the file's full path."""
     fname = frappe.db.get_value(
         "File",
         {"attached_to_doctype": "Delivery Note", "attached_to_name": dn_name,
          "file_name": _label_file_name(dn_name)},
         "name",
     )
-    if fname:
-        try:
-            return frappe.get_doc("File", fname).get_content()
-        except Exception:
-            pass
+    if not fname:
+        return None
+    fdoc = frappe.get_doc("File", fname)
+    try:
+        data = _as_pdf_bytes(fdoc.get_content())
+        if data:
+            return data
+    except Exception:
+        pass
+    try:
+        with open(fdoc.get_full_path(), "rb") as fh:
+            return fh.read()
+    except Exception as e:
+        _log("D2C Prepare", "label read {0}: {1}".format(dn_name, str(e)[:200]))
+    return None
+
+
+def _label_pdf_bytes(dn_name, shipping_label_url):
+    """Return label PDF bytes: prefer the attached File, fall back to a live download."""
+    data = _read_attached_label(dn_name)
+    if data:
+        return data
     if shipping_label_url:
         try:
             import requests
@@ -600,15 +630,24 @@ def _build_combined_labels_pdf(dns, on_date, batch_no):
 
     writer = PdfWriter()
     missing = []
+    first_err = None
     for d in dns:
         content = _label_pdf_bytes(d["name"], d.get("shipping_label"))
         if not content:
             missing.append(d.get("shopify_order_id") or d["name"])
             continue
         try:
-            writer.append(PdfReader(io.BytesIO(content)))
-        except Exception:
+            # add_page loop is version-agnostic (works where PdfWriter.append
+            # may not); merges each label's page(s) in pack sequence.
+            for page in PdfReader(io.BytesIO(content)).pages:
+                writer.add_page(page)
+        except Exception as e:
+            if first_err is None:
+                first_err = "{0}: {1}".format(d["name"], str(e)[:160])
             missing.append(d.get("shopify_order_id") or d["name"])
+
+    if first_err:
+        _log("D2C Prepare", "label merge first error — " + first_err)
 
     if len(writer.pages) == 0:
         return None, missing

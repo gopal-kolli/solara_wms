@@ -11,6 +11,17 @@ frappe.ui.form.on("D2C Fulfillment Settings", {
             });
         });
 
+        frm.add_custom_button(__("Fetch Labels Now"), () => {
+            frm.call("fetch_labels_now").then((r) => {
+                frappe.msgprint({
+                    title: __("Label Fetch Result"),
+                    message: "<pre>" + frappe.utils.escape_html(
+                        JSON.stringify(r.message || {}, null, 2)) + "</pre>",
+                    indicator: "blue",
+                });
+            });
+        });
+
         frm.add_custom_button(__("Prepare Today's Shipments"), () => {
             frappe.prompt(
                 [{ fieldname: "on_date", label: __("Date (blank = today)"),

@@ -22,6 +22,9 @@
   "max_orders_per_run",
   "phase2_section",
   "sku_box_config",
+  "combine_categories",
+  "combine_piece_cap",
+  "max_order_lines",
   "actions_section",
   "run_release_now",
   "prepare_now"
@@ -139,6 +142,27 @@
    "fieldtype": "Code",
    "label": "SKU Box Config (JSON)",
    "options": "JSON"
+  },
+  {
+   "fieldname": "combine_categories",
+   "fieldtype": "Small Text",
+   "label": "Combinable Categories",
+   "default": "Cookware\nDrinkware",
+   "description": "Categories whose items STACK into one carton when bought together (one per line). Same-category multi-piece orders in these categories are treated as a SINGLE box. Appliances must NOT be listed here. SKU->category source = app combinable_categories.json map."
+  },
+  {
+   "fieldname": "combine_piece_cap",
+   "fieldtype": "Int",
+   "label": "Combine Piece Cap",
+   "default": "6",
+   "description": "Max pieces of one combinable category per carton before it splits into another box (weight/size guard). Validated: cookware ships single-AWB up to 6 pieces. 0 = use default (6)."
+  },
+  {
+   "fieldname": "max_order_lines",
+   "fieldtype": "Int",
+   "label": "Max Order Lines (Phase 1)",
+   "default": "6",
+   "description": "Orders with more distinct item lines than this are too complex to trust single-box stacking and stay on the manual sheet (jumbo guard). 0 = use default (6)."
   },
   {
    "fieldname": "actions_section",

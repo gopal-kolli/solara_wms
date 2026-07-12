@@ -30,10 +30,12 @@ Pipeline (all gated by the `D2C Fulfillment Settings` single doctype):
           ├─ Pick List PDF  (SKU-summary section + per-order pack section)
           └─ Combined Labels PDF (attached label PDFs merged in pack sequence)
 
-Phase 1 handles single-parcel orders only: the order's box count (per-SKU
-boxes-per-unit map `sku_box_config`; nestable accessories = 0, combos = 2+;
-qty multiplies) must equal exactly 1. Multi-box orders stay on the manual
-sheet until Phase 2.
+Phase 1 handles single-parcel orders only: the order's box count must equal
+exactly 1. Box count = sum over lines of Item.custom_boxes_per_unit x qty
+(0 = nestable accessory that packs inside a parent's box, 1 = own box [default],
+2+ = multi-box combo e.g. airfryer+juicer), floored at 1. The Item field is the
+source of truth; the settings sku_box_config JSON is a max-only safety net.
+Multi-box orders (count >= 2) stay on the manual sheet until Phase 2.
 
 Reversibility is already handled by the installed base: "Cancel Clickpost
 Shipment" voids the AWB on DN cancel. This module never cancels or deletes.
@@ -63,9 +65,11 @@ def _settings():
 
 
 def _box_config(settings):
-    """Parse the sku_box_config JSON map: SKU -> boxes shipped per unit.
-    0 = nestable accessory (packs inside the parent's box), 1 = own box,
-    2+ = true multi-box combo (e.g. AFO+juicer). Unknown SKUs default to 1."""
+    """Safety-net override map from the settings sku_box_config JSON. The Item
+    master field `custom_boxes_per_unit` is the primary source of truth; this
+    JSON can only bump a SKU's box count UP (never below the Item field) — a
+    code-side backstop so a known multi-box combo can't slip through as a single
+    AWB if its Item field wasn't set."""
     try:
         raw = json.loads(settings.get("sku_box_config") or "{}")
         return {str(k).strip().upper(): cint(v) for k, v in raw.items()}
@@ -74,12 +78,27 @@ def _box_config(settings):
         return {}
 
 
+def _item_boxes(item_code, box_map):
+    """Physical boxes one unit of this SKU ships in, for AWB planning.
+    Primary source: Item.custom_boxes_per_unit (0 = nestable accessory that packs
+    inside a parent's box, 1 = own box [default], 2+ = multi-box combo). The
+    settings JSON (box_map) is a max-only safety net for known combos."""
+    if not item_code:
+        return 1
+    try:
+        field_val = frappe.get_cached_value("Item", item_code, "custom_boxes_per_unit")
+    except Exception:
+        field_val = None
+    field_val = cint(field_val) if field_val is not None else 1
+    return max(field_val, cint(box_map.get(item_code.upper(), 0)))
+
+
 def _order_box_count(so, box_map):
-    """Boxes this order ships in: sum of boxes-per-unit x qty over lines.
-    An all-nestable order (sum 0) still ships as one parcel -> counts as 1."""
-    total = 0
-    for it in so.items:
-        total += box_map.get((it.item_code or "").upper(), 1) * cint(it.qty)
+    """Boxes this order ships in = sum of per-unit boxes x qty over lines.
+    Nestable accessories (0) ride inside a parent; an all-nestable order still
+    ships as one parcel -> floored at 1. == 1 means a single AWB (Phase 1);
+    >= 2 means multi-AWB (Phase 2)."""
+    total = sum(_item_boxes(it.item_code, box_map) * cint(it.qty) for it in so.items)
     return max(total, 1)
 
 

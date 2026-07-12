@@ -560,13 +560,20 @@ def prepare_todays_shipments(on_date=None):
             .format(on_date, len(already)))
         return summary
 
-    result = _render_batch_files(dns, on_date, batch_no)
+    # Generation stamp MMDDHHMM (e.g. 07120900) — names the files and traces the
+    # batch to the moment it was made. Each DN (and therefore each AWB) is in
+    # exactly one batch, so no AWB can appear in two files.
+    stamp = now_datetime().strftime("%m%d%H%M")
+    summary["batch_stamp"] = stamp
+
+    result = _render_batch_files(dns, on_date, batch_no, stamp)
     summary.update(result)
 
     batch = frappe.get_doc({
         "doctype": "D2C Prepare Batch",
         "date": on_date,
         "batch_no": batch_no,
+        "batch_stamp": stamp,
         "orders": len(dns),
         "units": summary["units"],
         "pick_list_url": result["pick_list_url"],
@@ -597,13 +604,15 @@ def reprint_batch(batch_name):
     dns = _todays_d2c_dns(settings, batch.date)
     wanted = {r.delivery_note for r in batch.delivery_notes}
     dns = [d for d in dns if d["name"] in wanted]
-    result = _render_batch_files(dns, batch.date, batch.batch_no)
-    return {"batch": batch.name, "orders": len(dns), **result}
+    # Reuse the original stamp so a reprint regenerates the SAME filenames.
+    stamp = batch.get("batch_stamp") or now_datetime().strftime("%m%d%H%M")
+    result = _render_batch_files(dns, batch.date, batch.batch_no, stamp)
+    return {"batch": batch.name, "batch_stamp": stamp, "orders": len(dns), **result}
 
 
-def _render_batch_files(dns, on_date, batch_no):
-    pick_url = _build_pick_list_pdf(dns, on_date, batch_no)
-    labels_url, missing = _build_combined_labels_pdf(dns, on_date, batch_no)
+def _render_batch_files(dns, on_date, batch_no, stamp):
+    pick_url = _build_pick_list_pdf(dns, on_date, batch_no, stamp)
+    labels_url, missing = _build_combined_labels_pdf(dns, on_date, batch_no, stamp)
     return {
         "pick_list_url": pick_url,
         "labels_pdf_url": labels_url,
@@ -624,7 +633,7 @@ def _sku_summary(dns):
     )
 
 
-def _build_pick_list_pdf(dns, on_date, batch_no):
+def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
     from frappe.utils.pdf import get_pdf
 
     sku_rows = _sku_summary(dns)
@@ -648,7 +657,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no):
 
     html = """
     <div style="font-family:Arial,sans-serif;font-size:11px">
-      <h2 style="margin:0">D2C Pick List — {date} — Batch {batch_no}</h2>
+      <h2 style="margin:0">D2C Pick List — {date} — Batch {batch_no} ({stamp})</h2>
       <p style="margin:2px 0 10px">Orders: <b>{orders}</b> &nbsp; Units: <b>{units:g}</b>
          &nbsp; SKUs: <b>{skus}</b> &nbsp;
          <span style="color:#888">generated {gen}</span></p>
@@ -676,16 +685,16 @@ def _build_pick_list_pdf(dns, on_date, batch_no):
         <tbody>{pack_rows}</tbody>
       </table>
     </div>
-    """.format(date=on_date, batch_no=batch_no, orders=len(dns), units=total_units,
-               skus=len(sku_rows), gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
+    """.format(date=on_date, batch_no=batch_no, stamp=stamp, orders=len(dns),
+               units=total_units, skus=len(sku_rows),
+               gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
                pick_rows=pick_rows, pack_rows=pack_rows)
 
     pdf_bytes = get_pdf(html)
-    return _save_output_file(
-        "d2c-pick-list-{0}-batch{1}.pdf".format(on_date, batch_no), pdf_bytes)
+    return _save_output_file("d2c-pick-list-{0}.pdf".format(stamp), pdf_bytes)
 
 
-def _build_combined_labels_pdf(dns, on_date, batch_no):
+def _build_combined_labels_pdf(dns, on_date, batch_no, stamp):
     from pypdf import PdfReader, PdfWriter
 
     writer = PdfWriter()
@@ -714,8 +723,7 @@ def _build_combined_labels_pdf(dns, on_date, batch_no):
 
     buf = io.BytesIO()
     writer.write(buf)
-    url = _save_output_file(
-        "d2c-labels-{0}-batch{1}.pdf".format(on_date, batch_no), buf.getvalue())
+    url = _save_output_file("d2c-labels-{0}.pdf".format(stamp), buf.getvalue())
     return url, missing
 
 

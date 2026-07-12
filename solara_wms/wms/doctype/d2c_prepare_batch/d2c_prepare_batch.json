@@ -7,6 +7,7 @@
  "field_order": [
   "date",
   "batch_no",
+  "batch_stamp",
   "column_break_1",
   "orders",
   "units",
@@ -31,6 +32,14 @@
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Batch No (within day)",
+   "read_only": 1
+  },
+  {
+   "description": "Generation stamp MMDDHHMM — names the output files (d2c-labels-<stamp>.pdf) and traces the batch to the moment it was generated.",
+   "fieldname": "batch_stamp",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Batch Stamp (MMDDHHMM)",
    "read_only": 1
   },
   {

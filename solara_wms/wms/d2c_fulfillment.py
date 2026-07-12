@@ -31,10 +31,13 @@ Pipeline (all gated by the `D2C Fulfillment Settings` single doctype):
           └─ Combined Labels PDF (attached label PDFs merged in pack sequence)
 
 Phase 1 handles single-parcel orders only: the order's box count must equal
-exactly 1. Box count = sum over lines of Item.custom_boxes_per_unit x qty
-(0 = nestable accessory that packs inside a parent's box, 1 = own box [default],
-2+ = multi-box combo e.g. airfryer+juicer), floored at 1. The Item field is the
-source of truth; the settings sku_box_config JSON is a max-only safety net.
+exactly 1. Box count combines two stacking rules (see _order_box_count):
+  - per-SKU: Item.custom_boxes_per_unit (0 = nestable accessory riding inside a
+    parent, 1 = own box [default], 2+ = multi-box combo e.g. airfryer+juicer);
+    settings sku_box_config is a max-only safety net.
+  - category-collapse: items of a COMBINABLE category (Cookware/Drinkware) STACK
+    into one carton together (up to combine_piece_cap pieces). Appliances do NOT
+    collapse — an airfryer + a cookware piece = 2 boxes.
 Multi-box orders (count >= 2) stay on the manual sheet until Phase 2.
 
 Reversibility is already handled by the installed base: "Cancel Clickpost
@@ -43,6 +46,7 @@ Shipment" voids the AWB on DN cancel. This module never cancels or deletes.
 
 import io
 import json
+import os
 
 import frappe
 from frappe import _
@@ -56,6 +60,14 @@ DEFAULT_WAREHOUSE = "Main Warehouse - WTBBPL"
 DEFAULT_PREFIX = "SHP"
 # Releasable Sales Order statuses: goods still to go out, nothing delivered yet.
 RELEASABLE_STATUSES = ("To Deliver and Bill", "To Deliver")
+
+# Categories whose items STACK into one carton when bought together (validated on
+# 10-day LIVE shipping history 2026-07-12: same-category multi-piece cookware
+# orders shipped single-AWB 346:1). Appliances are deliberately NOT here — each
+# needs its own box (airfryer + a cookware piece = 2 boxes, per ops).
+DEFAULT_COMBINABLE_CATEGORIES = ("Cookware", "Drinkware")
+DEFAULT_COMBINE_PIECE_CAP = 6  # pieces of one combinable category per carton
+DEFAULT_MAX_ORDER_LINES = 6    # jumbo guard: more distinct lines than this -> not Phase 1
 
 
 # ─── SETTINGS HELPERS ─────────────────────────────────────────────
@@ -93,13 +105,89 @@ def _item_boxes(item_code, box_map):
     return max(field_val, cint(box_map.get(item_code.upper(), 0)))
 
 
-def _order_box_count(so, box_map):
-    """Boxes this order ships in = sum of per-unit boxes x qty over lines.
-    Nestable accessories (0) ride inside a parent; an all-nestable order still
-    ships as one parcel -> floored at 1. == 1 means a single AWB (Phase 1);
-    >= 2 means multi-AWB (Phase 2)."""
-    total = sum(_item_boxes(it.item_code, box_map) * cint(it.qty) for it in so.items)
-    return max(total, 1)
+_CATEGORY_MAP = None
+
+
+def _category_map():
+    """SKU -> combinable category ('Cookware'/'Drinkware'), loaded once from the
+    app data file (curated from mis_category_map.json). Items not in the map are
+    treated as non-combinable (each carries its own per-SKU box count)."""
+    global _CATEGORY_MAP
+    if _CATEGORY_MAP is None:
+        try:
+            path = os.path.join(os.path.dirname(__file__), "data", "combinable_categories.json")
+            with open(path) as fh:
+                raw = json.load(fh)
+            _CATEGORY_MAP = {str(k).strip().upper(): v for k, v in raw.items()}
+        except Exception:
+            _log("D2C Config", "combinable_categories.json unreadable — category-collapse OFF")
+            _CATEGORY_MAP = {}
+    return _CATEGORY_MAP
+
+
+def _item_category(item_code):
+    if not item_code:
+        return None
+    return _category_map().get(item_code.upper())
+
+
+def _combinable_categories(settings):
+    raw = (settings.get("combine_categories") or "").strip()
+    if not raw:
+        return set(DEFAULT_COMBINABLE_CATEGORIES)
+    return {c.strip() for c in raw.replace(",", "\n").splitlines() if c.strip()}
+
+
+def _combine_piece_cap(settings):
+    return cint(settings.get("combine_piece_cap")) or DEFAULT_COMBINE_PIECE_CAP
+
+
+def _max_order_lines(settings):
+    # 0 in settings means "use default"; we always want some jumbo ceiling.
+    val = cint(settings.get("max_order_lines"))
+    return val if val > 0 else DEFAULT_MAX_ORDER_LINES
+
+
+def _order_box_count(so, box_map, settings):
+    """Boxes this order ships in, for AWB planning. Two stacking rules:
+
+    1. Per-SKU (Item.custom_boxes_per_unit, safety-net box_map): 0 = nestable
+       accessory that rides inside a parent, 1 = own box, 2+ = multi-box combo.
+    2. Category-collapse: items in a COMBINABLE category (Cookware/Drinkware)
+       STACK — any number of them (up to combine_piece_cap per carton) ship in
+       ONE box together. Appliances/others do NOT collapse, so an appliance +
+       a cookware piece = 1 (appliance) + 1 (cookware stack) = 2 boxes.
+
+    Box count = ceil(pieces / cap) per combinable category present, PLUS the
+    plain per-SKU box sum of every non-combinable line (nestable 0s add nothing).
+    Floored at 1. == 1 means single-AWB (Phase 1); >= 2 is Phase 2 / sheet.
+
+    Jumbo guard: an order with more distinct lines than max_order_lines is too
+    complex to trust the stacking assumptions (validated on a 7-line triply order
+    that shipped 2 AWBs) — force >= 2 so it stays on the sheet."""
+    lines = [it for it in so.items if cint(it.qty) > 0]
+    if len(lines) > _max_order_lines(settings):
+        return 2
+
+    combinable = _combinable_categories(settings)
+    cap = _combine_piece_cap(settings)
+
+    cat_pieces = {}   # combinable category -> stacked piece count
+    other_boxes = 0   # per-SKU boxes for everything else
+    for it in so.items:
+        boxes = _item_boxes(it.item_code, box_map)
+        qty = cint(it.qty)
+        cat = _item_category(it.item_code)
+        # A full-box item (>=1) in a combinable category stacks with its peers.
+        # Nestable accessories (0) never occupy a box — they ride along.
+        if boxes >= 1 and cat in combinable:
+            cat_pieces[cat] = cat_pieces.get(cat, 0) + qty
+        else:
+            other_boxes += boxes * qty
+
+    # ceil(pieces / cap) without importing math
+    cat_boxes = sum(-(-pieces // cap) for pieces in cat_pieces.values())
+    return max(cat_boxes + other_boxes, 1)
 
 
 def _source_warehouse(settings):
@@ -275,9 +363,10 @@ def _run_release(settings, dry_run=False):
             continue
 
         # Gate 1: single-parcel orders only. Nestable accessories count 0 boxes
-        # (they ride inside the parent's box); true combos count 2+. Multi-box
-        # orders are Phase 2 territory — they stay on the manual sheet.
-        if _order_box_count(so, box_map) != 1:
+        # (they ride inside the parent's box); same-category cookware/drinkware
+        # stacks into one box; true combos + appliance-with-cookware count 2+.
+        # Multi-box orders are Phase 2 territory — they stay on the manual sheet.
+        if _order_box_count(so, box_map, settings) != 1:
             res["skipped_multibox"] += 1
             continue
 

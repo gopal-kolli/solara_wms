@@ -144,17 +144,23 @@ def _release_d2c_shipments():
             return
 
     result = _run_release(settings, dry_run=cint(settings.get("dry_run")))
-    if result["created"] or result["failed"] or result["skipped_bad_data"]:
+    if (
+        result["created"] or result["failed"]
+        or result["skipped_bad_data"] or result["skipped_broken_ppcod"]
+    ):
         _log(
             "D2C Release",
             "created={0} skipped_multibox={1} skipped_nostock={2} "
-            "skipped_dn_exists={3} skipped_bad_data={4} failed={5} dry_run={6}\n"
-            "bad_data_sos={7}\nfailures={8}".format(
+            "skipped_dn_exists={3} skipped_bad_data={4} skipped_on_hold={5} "
+            "skipped_ppcod={6} skipped_broken_ppcod={7} failed={8} dry_run={9}\n"
+            "bad_data_sos={10}\nbroken_ppcod_sos={11}\nfailures={12}".format(
                 result["created"], result["skipped_multibox"],
                 result["skipped_nostock"], result["skipped_dn_exists"],
-                result["skipped_bad_data"], result["failed"],
-                cint(settings.get("dry_run")),
+                result["skipped_bad_data"], result["skipped_on_hold"],
+                result["skipped_ppcod"], result["skipped_broken_ppcod"],
+                result["failed"], cint(settings.get("dry_run")),
                 json.dumps(result["bad_data_sos"][:20]),
+                json.dumps(result["broken_ppcod_sos"][:20]),
                 json.dumps(result["failures"][:20]),
             ),
         )
@@ -208,6 +214,8 @@ def _run_release(settings, dry_run=False):
         "created": 0, "failed": 0,
         "skipped_multibox": 0, "skipped_nostock": 0, "skipped_dn_exists": 0,
         "skipped_bad_data": 0, "bad_data_sos": [],
+        "skipped_on_hold": 0, "skipped_ppcod": 0,
+        "skipped_broken_ppcod": 0, "broken_ppcod_sos": [],
         "created_dns": [], "failures": [],
     }
 
@@ -231,6 +239,39 @@ def _run_release(settings, dry_run=False):
         if any(not it.item_code for it in so.items):
             res["skipped_bad_data"] += 1
             res["bad_data_sos"].append(so_name)
+            continue
+
+        # Gate 0.5: Shopify hold. The DN COD Guard hard-blocks held orders at
+        # submit anyway — skipping upstream avoids burning a failed submit every
+        # run. Self-healing: the next Shopify sync clears custom_shopify_hold
+        # and the order releases on the following run.
+        if cint(so.get("custom_shopify_hold")):
+            res["skipped_on_hold"] += 1
+            continue
+
+        # Gate 0.6: PPCOD exclusion (Phase-1 scope decision, 2026-07-12).
+        # Default OFF: PPCOD orders stay on the manual sheet flow so the first
+        # automated cohort is prepaid-only (no collect-at-door amount to get
+        # wrong). Flip release_ppcod ON in settings to widen — no deploy needed.
+        if (
+            not cint(settings.get("release_ppcod"))
+            and (so.get("custom_order_type") or "") == "PPCOD"
+        ):
+            res["skipped_ppcod"] += 1
+            continue
+
+        # Gate 0.7: broken PPCOD — classified partial-prepaid but COD amount 0.
+        # The DN COD Guard hard-blocks these (the courier would be told to
+        # collect ₹0). Healthy PPCOD releases normally: the guard auto-syncs
+        # COD/prepaid amounts onto the DN. Surfaced so ops fix the SO
+        # classification (v11 backfill) instead of it failing every run.
+        if (
+            (so.get("custom_order_type") or "") == "PPCOD"
+            and flt(so.get("custom_cod_amount")) < 0.5
+            and flt(so.get("grand_total")) > 0.5
+        ):
+            res["skipped_broken_ppcod"] += 1
+            res["broken_ppcod_sos"].append(so_name)
             continue
 
         # Gate 1: single-parcel orders only. Nestable accessories count 0 boxes

@@ -28,7 +28,7 @@ fixtures = [
     {"dt": "Role", "filters": [["name", "in", ["Returns Manager", "HQ Returns Reviewer"]]]},
     {"dt": "Workflow State", "filters": [["name", "in", ["Draft", "Pending HQ Review", "Approved", "Rejected"]]]},
     {"dt": "Workflow", "filters": [["name", "in", ["Return Intake Approval"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si"]]]},
 ]
 
 # Document Events

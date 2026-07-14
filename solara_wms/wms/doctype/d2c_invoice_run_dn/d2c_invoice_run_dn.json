@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "creation": "2026-07-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "include",
+  "delivery_note",
+  "shopify_order_id",
+  "customer",
+  "order_type",
+  "amount",
+  "sales_invoice",
+  "result"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "include",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Invoice?",
+   "columns": 1
+  },
+  {
+   "fieldname": "delivery_note",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Delivery Note",
+   "options": "Delivery Note",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "shopify_order_id",
+   "fieldtype": "Data",
+   "label": "Shopify Order",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "order_type",
+   "fieldtype": "Data",
+   "label": "Type",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "result",
+   "fieldtype": "Small Text",
+   "label": "Result",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "D2C Invoice Run DN",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

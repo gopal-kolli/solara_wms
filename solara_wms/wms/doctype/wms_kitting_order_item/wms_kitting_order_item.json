@@ -1,0 +1,87 @@
+{
+  "actions": [],
+  "creation": "2026-03-08 10:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "item_code",
+    "item_name",
+    "required_qty",
+    "picked_qty",
+    "uom",
+    "source_bin",
+    "batch_no",
+    "row_status"
+  ],
+  "fields": [
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Item Code",
+      "options": "Item",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "item_code.item_name",
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Item Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "required_qty",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Required Qty",
+      "reqd": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "picked_qty",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Picked Qty"
+    },
+    {
+      "fetch_from": "item_code.stock_uom",
+      "fieldname": "uom",
+      "fieldtype": "Link",
+      "label": "UOM",
+      "options": "UOM"
+    },
+    {
+      "fieldname": "source_bin",
+      "fieldtype": "Link",
+      "label": "Source Bin",
+      "options": "Warehouse Bin"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Link",
+      "label": "Batch No",
+      "options": "Batch"
+    },
+    {
+      "default": "Pending",
+      "fieldname": "row_status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "Pending\nPicked\nShort",
+      "read_only": 1
+    }
+  ],
+  "istable": 1,
+  "links": [],
+  "modified": "2026-03-08 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Kitting Order Item",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 0
+}

@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "autoname": "format:D2CINV-{run_date}-{#####}",
+ "creation": "2026-07-14 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "run_date",
+  "column_break_1",
+  "status",
+  "orders_section",
+  "orders_help",
+  "orders",
+  "summary_section",
+  "summary"
+ ],
+ "fields": [
+  {
+   "default": "Today",
+   "fieldname": "run_date",
+   "fieldtype": "Date",
+   "label": "Run Date",
+   "reqd": 1,
+   "description": "Invoices D2C orders dispatched up to and including this date that are still awaiting a Sales Invoice."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "orders_section",
+   "fieldtype": "Section Break",
+   "label": "Dispatched D2C Orders Awaiting Invoice"
+  },
+  {
+   "fieldname": "orders_help",
+   "fieldtype": "HTML",
+   "options": "<p style='color:#6b7280'>Click <b>Load Pending Orders</b> to list the day's dispatched D2C shipments that have no invoice yet. Untick any that did NOT physically ship, then click <b>Create Invoices for Ticked</b>. Invoices are irreversible (real GST / IRN) — review before creating.</p>"
+  },
+  {
+   "fieldname": "orders",
+   "fieldtype": "Table",
+   "label": "Orders",
+   "options": "D2C Invoice Run DN"
+  },
+  {
+   "fieldname": "summary_section",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "summary",
+   "fieldtype": "Small Text",
+   "label": "Summary",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "D2C Invoice Run",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

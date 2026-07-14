@@ -411,9 +411,15 @@ def _make_and_submit_dn(so_name, warehouse, res):
         for row in dn.items:
             if not row.warehouse:
                 row.warehouse = warehouse
+        # Defer invoicing: this DN is submitted EARLY (before physical dispatch)
+        # only to create the AWB + label for packing. Flag it so the LIVE
+        # "Auto Create SI on Shopify DN Submit" script skips it — the SHPSI27 is
+        # raised later, after dispatch, via the evening D2C Invoice Run. (Manual
+        # sheet-flow DNs are unflagged and keep invoicing at submit as before.)
+        dn.custom_d2c_defer_si = 1
         dn.flags.ignore_permissions = True
         dn.insert(ignore_permissions=True)
-        dn.submit()  # ← triggers CP AWB + Shopify sync + SHPSI27 (LIVE scripts)
+        dn.submit()  # ← triggers CP AWB + Shopify sync (SI is deferred, see flag)
         frappe.db.commit()
         return dn.name
     except Exception as e:

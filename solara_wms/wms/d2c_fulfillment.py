@@ -495,7 +495,11 @@ def _fetch_d2c_labels():
     # Scope to the automation's OWN deferred DNs that have an AWB (not the manual
     # sheet's DNs). We resolve the label two ways: the presigned URL on the DN if
     # a courier wrote it, else the ClickPost fetch-by-AWB API (Shadowfax etc. only
-    # serve the label by AWB — they never write it to the DN).
+    # serve the label by AWB — they never write it to the DN). Oldest-first so a
+    # backlog drains in order (and a set_value modified-bump can't starve old DNs);
+    # a small dedicated cap keeps each */15 run inside the scheduler time budget
+    # (each DN can do several Shopify + ClickPost HTTP calls + an SI submit).
+    limit = cint(settings.get("label_batch_size")) or 40
     dns = frappe.get_all(
         "Delivery Note",
         filters={
@@ -505,51 +509,64 @@ def _fetch_d2c_labels():
             "awb_number": ["is", "set"],
         },
         fields=fields,
-        limit_page_length=cint(settings.get("release_batch_size")) or 200,
+        order_by="posting_date asc, creation asc",
+        limit_page_length=limit,
     )
 
-    fetched = pending = invoiced = inv_failed = fulfilled = ful_failed = 0
+    import time
+    deadline = time.monotonic() + (cint(settings.get("label_time_budget_sec")) or 210)
+
+    fetched = pending = invoiced = inv_failed = fulfilled = ful_failed = errors = 0
     for dn in dns:
-        # Fulfillment first — needs only the AWB, so it never waits on the label.
-        if do_fulfill and not cint(dn.get("custom_shopify_fulfilled")):
-            outcome = _try_fulfill(dn)
-            if outcome in ("created", "updated", "in_sync"):
-                frappe.db.set_value("Delivery Note", dn.name,
-                                    "custom_shopify_fulfilled", 1)
-                frappe.db.commit()
-                fulfilled += 1
-            elif outcome == "failed":
-                ful_failed += 1
+        if time.monotonic() > deadline:
+            _log("D2C Label Fetch", "time budget hit — processed part of batch, rest next run")
+            break
+        # Each DN isolated: a per-row error must never abort the whole */15 batch.
+        try:
+            # Fulfillment first — needs only the AWB, so it never waits on the label.
+            if do_fulfill and not cint(dn.get("custom_shopify_fulfilled")):
+                outcome = _try_fulfill(dn)
+                if outcome in ("created", "updated", "in_sync"):
+                    frappe.db.set_value("Delivery Note", dn.name,
+                                        "custom_shopify_fulfilled", 1)
+                    frappe.db.commit()
+                    fulfilled += 1
+                elif outcome == "failed":
+                    ful_failed += 1
 
-        has_label = True
-        if not _has_attached_label(dn.name):
-            has_label = _attach_label_for_dn(dn, cp_key, cpid_map, settings)
-            if has_label:
-                fetched += 1
-            else:
-                pending += 1
-        # Auto-invoice once the label is on hand: only deferred, not-yet-billed DNs.
-        if (
-            auto_invoice and has_label
-            and cint(dn.get("custom_d2c_defer_si"))
-            and flt(dn.get("per_billed")) < 0.01
-        ):
-            outcome = _auto_invoice_deferred_dn(dn.name)
-            if outcome == "created":
-                invoiced += 1
-            elif outcome == "failed":
-                inv_failed += 1
+            has_label = True
+            if not _has_attached_label(dn.name):
+                has_label = _attach_label_for_dn(dn, cp_key, cpid_map, settings)
+                if has_label:
+                    fetched += 1
+                else:
+                    pending += 1
+            # Auto-invoice once the label is on hand: deferred, not-yet-billed DNs.
+            if (
+                auto_invoice and has_label
+                and cint(dn.get("custom_d2c_defer_si"))
+                and flt(dn.get("per_billed")) < 0.01
+            ):
+                outcome = _auto_invoice_deferred_dn(dn.name)
+                if outcome == "created":
+                    invoiced += 1
+                elif outcome == "failed":
+                    inv_failed += 1
+        except Exception as e:
+            frappe.db.rollback()
+            errors += 1
+            _log("D2C Label Fetch", "DN {0}: {1}".format(dn.get("name"), str(e)[:250]))
 
-    if fetched or pending or invoiced or inv_failed or fulfilled or ful_failed:
+    if fetched or pending or invoiced or inv_failed or fulfilled or ful_failed or errors:
         _log(
             "D2C Label Fetch",
             "attached={0} pending={1} invoiced={2} inv_failed={3} "
-            "fulfilled={4} ful_failed={5}".format(
-                fetched, pending, invoiced, inv_failed, fulfilled, ful_failed),
+            "fulfilled={4} ful_failed={5} errors={6}".format(
+                fetched, pending, invoiced, inv_failed, fulfilled, ful_failed, errors),
         )
     return {"attached": fetched, "pending": pending,
             "invoiced": invoiced, "inv_failed": inv_failed,
-            "fulfilled": fulfilled, "ful_failed": ful_failed}
+            "fulfilled": fulfilled, "ful_failed": ful_failed, "errors": errors}
 
 
 def _cp_key(settings):
@@ -647,6 +664,11 @@ def _attach_label_for_dn(dn, cp_key, cpid_map, settings):
 
     if not contents:
         return False
+    # Multi-parcel: attach ONLY when EVERY parcel's label is on hand — otherwise we'd
+    # lock the DN (label attached) with one parcel unlabelled, shipping it blind.
+    # Wait and retry next run instead.
+    if len(pairs) > 1 and len(contents) < len(pairs):
+        return False
     if len(contents) == 1:
         return _attach_label_bytes(dn.name, contents[0])
 
@@ -674,12 +696,31 @@ def _try_fulfill(dn):
         return "failed"
 
 
+def _shopify_json(r):
+    """Parsed body ONLY if the call truly succeeded — HTTP 200 with no top-level
+    GraphQL `errors`. Shopify returns 200 + {"errors":[{...THROTTLED}], "data":null}
+    on cost-based rate limiting; without this a throttled call looks like an empty
+    userErrors list and would be mistaken for success. None => treat as failure."""
+    try:
+        if r.status_code != 200:
+            return None
+        j = r.json()
+        if j.get("errors"):
+            return None
+        return j
+    except Exception:
+        return None
+
+
 def push_shopify_fulfillment(dn):
-    """Create (or fix tracking on) the Shopify fulfillment for a DN, so the order
-    shows fulfilled + the customer gets the AWB tracking. Idempotent: checks the
-    order's existing fulfillments first. Returns one of created | updated | in_sync
-    | no_open_fo | skipped | failed. App-code replacement for the sandbox-broken
-    'Auto Sync AWB to Shopify' server script (faithful port of its GraphQL)."""
+    """Create the Shopify fulfillment for a DN, so the order shows fulfilled + the
+    customer gets the AWB tracking. Idempotent + non-clobbering: returns in_sync if a
+    success fulfillment already carries all our AWBs, and never overwrites a
+    fulfillment created by another path. Returns created | in_sync | no_open_fo |
+    skipped | failed. App-code replacement for the sandbox-broken 'Auto Sync AWB to
+    Shopify' server script (frappe.make_*_request is None in safe_exec). Every
+    Shopify call is validated via _shopify_json (rejects throttle/HTTP/errors) so a
+    rate-limited response is NEVER mistaken for a successful fulfillment."""
     import requests
 
     oid = str(dn.get("shopify_order_id") or "")
@@ -690,9 +731,11 @@ def push_shopify_fulfillment(dn):
         return "skipped"
 
     shop_url = frappe.db.get_single_value("Shopify Setting", "shopify_url")
+    if not shop_url:
+        return "skipped"
     token = frappe.utils.password.get_decrypted_password(
-        "Shopify Setting", "Shopify Setting", "password")
-    if not (shop_url and token):
+        "Shopify Setting", "Shopify Setting", "password", raise_exception=False)
+    if not token:
         return "skipped"
 
     carrier_raw = (pairs[0][1] or dn.get("courier_partner") or "Delhivery").strip()
@@ -707,57 +750,57 @@ def push_shopify_fulfillment(dn):
         track_info = {"numbers": awbs, "urls": urls, "company": carrier}
     awb = ",".join(awbs)  # for log lines
 
-    # Existing fulfillments — skip if a success one already carries all our AWBs.
+    # Existing fulfillments. Scan ALL of them (do not break on the first): if any
+    # success fulfillment already carries all our AWBs the order is in sync; if the
+    # order is fulfilled by some OTHER path whose tracking we don't own, we must NOT
+    # clobber it or duplicate — we detect that and stop (no open fulfillment order
+    # will exist to create against anyway).
     fr = requests.get(
         "https://" + shop_url + "/admin/api/2024-01/orders/" + oid + "/fulfillments.json",
         headers=headers, timeout=30)
-    fulfillments = (fr.json() or {}).get("fulfillments", []) if fr.status_code == 200 else []
-    target = None
+    if fr.status_code != 200:
+        _log("D2C Fulfill", "list {0}: HTTP {1}".format(dn.get("name"), fr.status_code))
+        return "failed"
+    fulfillments = (fr.json() or {}).get("fulfillments", [])
+    covered = set()
     for f in fulfillments:
         if f.get("status") == "success":
-            existing = set(f.get("tracking_numbers") or (
+            covered |= set(f.get("tracking_numbers") or (
                 [f["tracking_number"]] if f.get("tracking_number") else []))
-            if set(awbs).issubset(existing):
-                return "in_sync"
-            target = f
-            break
+    if awbs and set(awbs).issubset(covered):
+        return "in_sync"
 
-    if target:  # fulfilled already, but tracking differs -> update it
-        mut = ("mutation($f: ID!, $t: FulfillmentTrackingInput!, $n: Boolean) { "
-               "fulfillmentTrackingInfoUpdateV2(fulfillmentId: $f, trackingInfoInput: $t, "
-               "notifyCustomer: $n) { fulfillment { id } userErrors { message } } }")
-        payload = {"query": mut, "variables": {
-            "f": "gid://shopify/Fulfillment/" + str(target["id"]),
-            "t": track_info, "n": True}}
-        r = requests.post(gql, data=json.dumps(payload), headers=headers, timeout=30)
-        errs = (((r.json() or {}).get("data") or {}).get(
-            "fulfillmentTrackingInfoUpdateV2") or {}).get("userErrors", [])
-        if errs:
-            _log("D2C Fulfill", "update {0} AWB {1}: {2}".format(dn.get("name"), awb, errs))
-            return "failed"
-        return "updated"
-
-    # No fulfillment yet -> create against the order's OPEN fulfillment orders.
+    # Create against the order's OPEN fulfillment orders. An already-fulfilled order
+    # (by CS/manual/connector) has NO open fulfillment order, so we return without
+    # touching the foreign fulfillment.
     foq = ('{ order(id: "gid://shopify/Order/' + oid + '") { fulfillmentOrders(first: 10) '
            '{ edges { node { id status } } } } }')
     r = requests.post(gql, data=json.dumps({"query": foq}), headers=headers, timeout=30)
-    edges = ((((r.json() or {}).get("data") or {}).get("order") or {}).get(
+    jf = _shopify_json(r)
+    if jf is None:
+        _log("D2C Fulfill", "fo-query {0} AWB {1}: throttled/HTTP".format(dn.get("name"), awb))
+        return "failed"
+    edges = (((jf.get("data") or {}).get("order") or {}).get(
         "fulfillmentOrders") or {}).get("edges", [])
     open_fos = [(e.get("node") or {}).get("id") for e in edges
                 if (e.get("node") or {}).get("status") == "OPEN"]
     if not open_fos:
+        # No open FO: either fulfilled elsewhere (covered != our awbs) or cancelled.
         return "no_open_fo"
 
     cmut = ("mutation($f: FulfillmentV2Input!) { fulfillmentCreateV2(fulfillment: $f) "
             "{ fulfillment { id status } userErrors { message } } }")
     cpayload = {"query": cmut, "variables": {"f": {
         "lineItemsByFulfillmentOrder": [{"fulfillmentOrderId": fid} for fid in open_fos],
-        "trackingInfo": track_info, "notifyCustomer": True}}}
+        "trackingInfo": track_info, "notifyCustomer": bool(notify)}}}
     r = requests.post(gql, data=json.dumps(cpayload), headers=headers, timeout=30)
-    errs = (((r.json() or {}).get("data") or {}).get(
-        "fulfillmentCreateV2") or {}).get("userErrors", [])
-    if errs:
-        _log("D2C Fulfill", "create {0} AWB {1}: {2}".format(dn.get("name"), awb, errs))
+    jc = _shopify_json(r)
+    node = ((jc or {}).get("data") or {}).get("fulfillmentCreateV2") or {}
+    errs = node.get("userErrors", [])
+    # Success ONLY if we got a real fulfillment id back (guards throttle/HTTP/errors).
+    if jc is None or errs or not (node.get("fulfillment") or {}).get("id"):
+        _log("D2C Fulfill", "create {0} AWB {1}: {2}".format(
+            dn.get("name"), awb, errs or "throttled/HTTP/no-id"))
         return "failed"
     return "created"
 
@@ -801,7 +844,12 @@ def create_si_from_deferred_dn(dn_name):
     if not so_name or not so_name.startswith("SHP"):
         return None
 
-    if flt(frappe.db.get_value("Sales Order", so_name, "per_billed")) > 0:
+    # Serialize double-invoicing: lock the SO row (FOR UPDATE) before the per_billed
+    # check so a concurrent auto-invoice-on-label tick + a manual D2C Invoice Run
+    # can't both pass the guard and mint two SHPSI27 / two IRNs for the same DN. The
+    # SI submit bumps SO.per_billed inside this txn; the 2nd caller blocks on the
+    # lock, then reads per_billed > 0 and bails.
+    if flt(frappe.db.get_value("Sales Order", so_name, "per_billed", for_update=True)) > 0:
         return None
 
     si = make_sales_invoice(source_name=doc.name)

@@ -282,6 +282,41 @@ def _order_box_count(so, box_map, settings):
     return len(_order_parcels(so, box_map, settings))
 
 
+def _fully_covered_by_known_combos(so, box_map, settings):
+    """PHASE-1 multi-box release gate: True only when the order's entire >=2-box
+    nature comes from a SINGLE known-splittable combo that the LIVE ClickPost
+    script (SPLIT_COMBOS) already 2-parcels correctly — so releasing it can NEVER
+    under-ship. Guarantees:
+      1. exactly ONE line is a combo SKU, qty == 1 (CP splits on the first match
+         and mints n=len(children) parcels regardless of qty, so >1 combo line or
+         qty>1 would under-ship);
+      2. that combo has exactly 2 children (matches the DN's 2-AWB storage cap —
+         3+ children would be minted-and-orphaned);
+      3. every OTHER line contributes 0 boxes (nestable ride-along only — a second
+         appliance / cookware stack would need AWBs the CP combo branch won't mint);
+      4. not tripped by the jumbo guard.
+    When all hold, box_count == 2 and CP produces exactly those 2 AWBs; the AWB
+    guard still backstops it before dispatch."""
+    combos = _split_combos(settings)
+    live = [it for it in so.items if cint(it.get("qty")) > 0]
+    if len(live) > _max_order_lines(settings):
+        return False
+    combo_lines = [it for it in live if (it.get("item_code") or "").upper() in combos]
+    if len(combo_lines) != 1:
+        return False
+    cl = combo_lines[0]
+    if cint(cl.get("qty")) != 1:
+        return False
+    if len(combos[(cl.get("item_code") or "").upper()]) != 2:
+        return False
+    for it in live:
+        if it is cl:
+            continue
+        if _item_boxes(it.get("item_code"), box_map) != 0:
+            return False  # a real second box the combo split won't cover
+    return True
+
+
 def _source_warehouse(settings):
     return settings.get("source_warehouse") or DEFAULT_WAREHOUSE
 
@@ -462,8 +497,14 @@ def _run_release(settings, dry_run=False):
         # (a DN can never ship with fewer AWBs than boxes).
         box_count = _order_box_count(so, box_map, settings)
         if box_count != 1:
-            res["skipped_multibox"] += 1
-            continue
+            # PHASE 1: a multi-box order releases ONLY if it is fully covered by a
+            # known-splittable combo the ClickPost script already 2-parcels
+            # correctly (gated behind release_known_combos, default OFF). All other
+            # multi-box orders stay on the manual sheet.
+            if not (cint(settings.get("release_known_combos"))
+                    and _fully_covered_by_known_combos(so, box_map, settings)):
+                res["skipped_multibox"] += 1
+                continue
 
         # Gate 2: physical stock present for every line (actual_qty, not available:
         # this SO's own reservation would otherwise net it out).

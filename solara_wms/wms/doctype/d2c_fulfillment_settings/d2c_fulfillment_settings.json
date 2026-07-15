@@ -17,6 +17,7 @@
   "column_break_gates",
   "require_stock",
   "release_ppcod",
+  "release_known_combos",
   "enforce_cutoff_on_release",
   "cutoff_hour",
   "scope_section",
@@ -120,6 +121,13 @@
    "fieldname": "release_ppcod",
    "fieldtype": "Check",
    "label": "Release PPCOD Orders"
+  },
+  {
+   "default": "0",
+   "fieldname": "release_known_combos",
+   "fieldtype": "Check",
+   "label": "Release Known Multi-box Combos",
+   "description": "Phase 1: auto-release multi-box orders whose 2-box split is a known combo the ClickPost script already handles (SOL-AFO-501-JUC-121). All other multi-box stays on the sheet. The AWB guard backstops it."
   },
   {
    "default": "0",

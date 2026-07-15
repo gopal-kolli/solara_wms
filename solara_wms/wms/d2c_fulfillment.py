@@ -68,6 +68,18 @@ D2C_INCOME_ACCOUNT = "Sales - WTBBPL"
 # in D2C Fulfillment Settings.clickpost_api_key (not in code).
 CLICKPOST_LABEL_API = "https://www.clickpost.in/api/v1/fetch/shippinglabel/"
 DEFAULT_CPID_SEED = {"shadowfax": 9, "delhivery": 4}
+
+# Shopify fulfillment: push AWB + tracking to Shopify so the order shows fulfilled
+# and the customer gets tracking. The LIVE "Auto Sync AWB to Shopify" server script
+# does this on DN re-save, but it calls frappe.make_get/post_request which are None
+# in the safe_exec sandbox (throws 'NoneType' object is not callable — 133 fails/24h
+# as of 2026-07-15), and the connector's own fulfillment sync is off
+# (Shopify Setting.sync_delivery_note=0). So we do it here in app code (real HTTP).
+SHOPIFY_CARRIER_MAP = {
+    "Delhivery": "Delhivery", "Bluedart": "Bluedart", "Blue Dart": "Bluedart",
+    "DTDC": "DTDC Express", "Xpressbees": "XpressBees", "Ecom Express": "Ecom Express",
+    "Shadowfax": "Shadowfax",
+}
 # Releasable Sales Order statuses: goods still to go out, nothing delivered yet.
 RELEASABLE_STATUSES = ("To Deliver and Bill", "To Deliver")
 
@@ -465,8 +477,20 @@ def _fetch_d2c_labels():
     # default trigger; the D2C Invoice Run screen stays as the manual fallback for
     # any DN whose auto-invoice was off/failed. Toggle: auto_invoice_on_label.
     auto_invoice = cint(settings.get("auto_invoice_on_label"))
+    # Push Shopify fulfillment here too (the 'Auto Sync AWB to Shopify' server
+    # script is dead in the safe_exec sandbox; connector sync_delivery_note=0).
+    # Independent of the label — fulfillment only needs the AWB. Toggle set per-site.
+    do_fulfill = cint(settings.get("auto_fulfill_shopify"))
     cp_key = _cp_key(settings)
     cpid_map = _cpid_map(settings)
+
+    fields = ["name", "shipping_label", "awb_number", "courier_partner",
+              "custom_d2c_defer_si", "per_billed", "shopify_order_id",
+              "custom_shopify_fulfilled"]
+    meta = frappe.get_meta("Delivery Note")
+    for f in ("custom_awb_2", "custom_courier_2"):
+        if meta.has_field(f):
+            fields.append(f)
 
     # Scope to the automation's OWN deferred DNs that have an AWB (not the manual
     # sheet's DNs). We resolve the label two ways: the presigned URL on the DN if
@@ -480,13 +504,23 @@ def _fetch_d2c_labels():
             "posting_date": [">=", add_days(nowdate(), -lookback)],
             "awb_number": ["is", "set"],
         },
-        fields=["name", "shipping_label", "awb_number", "courier_partner",
-                "custom_d2c_defer_si", "per_billed"],
+        fields=fields,
         limit_page_length=cint(settings.get("release_batch_size")) or 200,
     )
 
-    fetched = pending = invoiced = inv_failed = 0
+    fetched = pending = invoiced = inv_failed = fulfilled = ful_failed = 0
     for dn in dns:
+        # Fulfillment first — needs only the AWB, so it never waits on the label.
+        if do_fulfill and not cint(dn.get("custom_shopify_fulfilled")):
+            outcome = _try_fulfill(dn)
+            if outcome in ("created", "updated", "in_sync"):
+                frappe.db.set_value("Delivery Note", dn.name,
+                                    "custom_shopify_fulfilled", 1)
+                frappe.db.commit()
+                fulfilled += 1
+            elif outcome == "failed":
+                ful_failed += 1
+
         has_label = True
         if not _has_attached_label(dn.name):
             has_label = _attach_label_for_dn(dn, cp_key, cpid_map, settings)
@@ -506,14 +540,16 @@ def _fetch_d2c_labels():
             elif outcome == "failed":
                 inv_failed += 1
 
-    if fetched or pending or invoiced or inv_failed:
+    if fetched or pending or invoiced or inv_failed or fulfilled or ful_failed:
         _log(
             "D2C Label Fetch",
-            "attached={0} pending={1} invoiced={2} inv_failed={3}".format(
-                fetched, pending, invoiced, inv_failed),
+            "attached={0} pending={1} invoiced={2} inv_failed={3} "
+            "fulfilled={4} ful_failed={5}".format(
+                fetched, pending, invoiced, inv_failed, fulfilled, ful_failed),
         )
     return {"attached": fetched, "pending": pending,
-            "invoiced": invoiced, "inv_failed": inv_failed}
+            "invoiced": invoiced, "inv_failed": inv_failed,
+            "fulfilled": fulfilled, "ful_failed": ful_failed}
 
 
 def _cp_key(settings):
@@ -569,38 +605,161 @@ def _fetch_cp_label_url(awb, cp_id, cp_key):
     return None
 
 
-def _attach_label_for_dn(dn, cp_key, cpid_map, settings):
-    """Resolve + attach the label PDF for one DN. Order: (1) presigned URL already
-    on the DN, (2) ClickPost fetch-by-AWB using the courier's mapped cp_id,
-    (3) fallback — try every known cp_id against the AWB (covers a blank/unmapped
-    courier_partner on a common courier). Returns True once a label is attached.
-
-    A courier ClickPost serves that isn't in the seed/settings map just needs its
-    cp_id added to `courier_cpid_map` in D2C Fulfillment Settings — no code change,
-    no auto-probing (which would hammer the API for couriers that have no label)."""
-    # 1. presigned URL on the DN (couriers that write it back)
-    if dn.get("shipping_label") and _download_and_attach_label(dn.name, dn.shipping_label):
-        return True
-    if not cp_key:
-        return False
-    # 2. fetch-by-AWB via the courier's mapped cp_id
+def _label_bytes_for_awb(awb, courier, cp_key, cpid_map):
+    """One parcel's label PDF bytes via ClickPost fetch-by-AWB: the courier's mapped
+    cp_id first, then every known cp_id (covers a blank/unmapped courier). A courier
+    ClickPost serves that isn't in the map just needs its cp_id added to
+    `courier_cpid_map` in settings — no code change, no API-hammering probes."""
+    if not (awb and cp_key):
+        return None
     tried = set()
-    for awb, courier in _awb_courier_pairs(dn):
-        cp_id = cpid_map.get((courier or "").strip().lower())
-        if cp_id:
-            tried.add(cp_id)
-            url = _fetch_cp_label_url(awb, cp_id, cp_key)
-            if url and _download_and_attach_label(dn.name, url):
-                return True
-    # 3. fallback: try every known cp_id against the primary AWB
+    cp_id = cpid_map.get((courier or "").strip().lower())
+    order = ([cp_id] if cp_id else []) + sorted(set(cpid_map.values()) - {cp_id})
+    for cid in order:
+        tried.add(cid)
+        url = _fetch_cp_label_url(awb, cid, cp_key)
+        if url:
+            b = _download_pdf_bytes(url)
+            if b:
+                return b
+    return None
+
+
+def _attach_label_for_dn(dn, cp_key, cpid_map, settings):
+    """Resolve + attach the label PDF(s) for one DN. Multi-parcel aware: a combo DN
+    has 2 AWBs (awb_number + custom_awb_2), so we fetch each parcel's label and
+    MERGE them into the single d2c-label-<DN>.pdf File. For a single parcel we fall
+    back to the DN's presigned shipping_label URL if the by-AWB fetch found nothing.
+    Returns True once a label is attached."""
+    import io
+
     pairs = _awb_courier_pairs(dn)
-    if pairs:
-        awb = pairs[0][0]
-        for cp_id in sorted(set(cpid_map.values()) - tried):
-            url = _fetch_cp_label_url(awb, cp_id, cp_key)
-            if url and _download_and_attach_label(dn.name, url):
-                return True
-    return False
+    contents = []
+    for awb, courier in pairs:
+        b = _label_bytes_for_awb(awb, courier, cp_key, cpid_map)
+        if b:
+            contents.append(b)
+    # single-parcel fallback: the DN's own presigned URL (couriers that write it back)
+    if not contents and dn.get("shipping_label"):
+        b = _download_pdf_bytes(dn.shipping_label)
+        if b:
+            contents.append(b)
+
+    if not contents:
+        return False
+    if len(contents) == 1:
+        return _attach_label_bytes(dn.name, contents[0])
+
+    # merge multiple parcel labels into one PDF
+    from pypdf import PdfReader, PdfWriter
+    writer = PdfWriter()
+    for b in contents:
+        try:
+            writer.append(PdfReader(io.BytesIO(_as_pdf_bytes(b) or b)))
+        except Exception:
+            pass
+    if not writer.pages:
+        return _attach_label_bytes(dn.name, contents[0])  # merge failed -> first as-is
+    buf = io.BytesIO()
+    writer.write(buf)
+    return _attach_label_bytes(dn.name, buf.getvalue())
+
+
+def _try_fulfill(dn):
+    """Push fulfillment for one DN, never raising into the job loop."""
+    try:
+        return push_shopify_fulfillment(dn)
+    except Exception as e:
+        _log("D2C Fulfill", "{0}: {1}".format(dn.get("name"), str(e)[:250]))
+        return "failed"
+
+
+def push_shopify_fulfillment(dn):
+    """Create (or fix tracking on) the Shopify fulfillment for a DN, so the order
+    shows fulfilled + the customer gets the AWB tracking. Idempotent: checks the
+    order's existing fulfillments first. Returns one of created | updated | in_sync
+    | no_open_fo | skipped | failed. App-code replacement for the sandbox-broken
+    'Auto Sync AWB to Shopify' server script (faithful port of its GraphQL)."""
+    import requests
+
+    oid = str(dn.get("shopify_order_id") or "")
+    # Multi-parcel aware: a combo DN carries 2 AWBs (awb_number + custom_awb_2).
+    pairs = _awb_courier_pairs(dn)
+    awbs = [a for a, _ in pairs]
+    if not (oid and awbs):
+        return "skipped"
+
+    shop_url = frappe.db.get_single_value("Shopify Setting", "shopify_url")
+    token = frappe.utils.password.get_decrypted_password(
+        "Shopify Setting", "Shopify Setting", "password")
+    if not (shop_url and token):
+        return "skipped"
+
+    carrier_raw = (pairs[0][1] or dn.get("courier_partner") or "Delhivery").strip()
+    carrier = SHOPIFY_CARRIER_MAP.get(carrier_raw, carrier_raw)
+    urls = ["https://www.clickpost.in/tracking/#/" + a for a in awbs]
+    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+    gql = "https://" + shop_url + "/admin/api/2024-01/graphql.json"
+    # Shopify takes a single number or a numbers[] list on one fulfillment.
+    if len(awbs) == 1:
+        track_info = {"number": awbs[0], "url": urls[0], "company": carrier}
+    else:
+        track_info = {"numbers": awbs, "urls": urls, "company": carrier}
+    awb = ",".join(awbs)  # for log lines
+
+    # Existing fulfillments — skip if a success one already carries all our AWBs.
+    fr = requests.get(
+        "https://" + shop_url + "/admin/api/2024-01/orders/" + oid + "/fulfillments.json",
+        headers=headers, timeout=30)
+    fulfillments = (fr.json() or {}).get("fulfillments", []) if fr.status_code == 200 else []
+    target = None
+    for f in fulfillments:
+        if f.get("status") == "success":
+            existing = set(f.get("tracking_numbers") or (
+                [f["tracking_number"]] if f.get("tracking_number") else []))
+            if set(awbs).issubset(existing):
+                return "in_sync"
+            target = f
+            break
+
+    if target:  # fulfilled already, but tracking differs -> update it
+        mut = ("mutation($f: ID!, $t: FulfillmentTrackingInput!, $n: Boolean) { "
+               "fulfillmentTrackingInfoUpdateV2(fulfillmentId: $f, trackingInfoInput: $t, "
+               "notifyCustomer: $n) { fulfillment { id } userErrors { message } } }")
+        payload = {"query": mut, "variables": {
+            "f": "gid://shopify/Fulfillment/" + str(target["id"]),
+            "t": track_info, "n": True}}
+        r = requests.post(gql, data=json.dumps(payload), headers=headers, timeout=30)
+        errs = (((r.json() or {}).get("data") or {}).get(
+            "fulfillmentTrackingInfoUpdateV2") or {}).get("userErrors", [])
+        if errs:
+            _log("D2C Fulfill", "update {0} AWB {1}: {2}".format(dn.get("name"), awb, errs))
+            return "failed"
+        return "updated"
+
+    # No fulfillment yet -> create against the order's OPEN fulfillment orders.
+    foq = ('{ order(id: "gid://shopify/Order/' + oid + '") { fulfillmentOrders(first: 10) '
+           '{ edges { node { id status } } } } }')
+    r = requests.post(gql, data=json.dumps({"query": foq}), headers=headers, timeout=30)
+    edges = ((((r.json() or {}).get("data") or {}).get("order") or {}).get(
+        "fulfillmentOrders") or {}).get("edges", [])
+    open_fos = [(e.get("node") or {}).get("id") for e in edges
+                if (e.get("node") or {}).get("status") == "OPEN"]
+    if not open_fos:
+        return "no_open_fo"
+
+    cmut = ("mutation($f: FulfillmentV2Input!) { fulfillmentCreateV2(fulfillment: $f) "
+            "{ fulfillment { id status } userErrors { message } } }")
+    cpayload = {"query": cmut, "variables": {"f": {
+        "lineItemsByFulfillmentOrder": [{"fulfillmentOrderId": fid} for fid in open_fos],
+        "trackingInfo": track_info, "notifyCustomer": True}}}
+    r = requests.post(gql, data=json.dumps(cpayload), headers=headers, timeout=30)
+    errs = (((r.json() or {}).get("data") or {}).get(
+        "fulfillmentCreateV2") or {}).get("userErrors", [])
+    if errs:
+        _log("D2C Fulfill", "create {0} AWB {1}: {2}".format(dn.get("name"), awb, errs))
+        return "failed"
+    return "created"
 
 
 def _auto_invoice_deferred_dn(dn_name):
@@ -693,23 +852,33 @@ def _has_attached_label(dn_name):
     ))
 
 
-def _download_and_attach_label(dn_name, url):
-    """Download a label PDF URL and attach it privately to the DN. Best-effort."""
+def _download_pdf_bytes(url):
+    """Download a label PDF URL -> bytes (HTTP 200, non-empty). None on failure."""
     if not url:
-        return False
+        return None
     try:
         import requests
         resp = requests.get(url, timeout=30)
-        if resp.status_code != 200 or not resp.content:
-            _log("D2C Label Fetch", "download {0}: HTTP {1}".format(dn_name, resp.status_code))
-            return False
+        if resp.status_code == 200 and resp.content:
+            return resp.content
+        _log("D2C Label Fetch", "download HTTP {0}".format(resp.status_code))
+    except Exception as e:
+        _log("D2C Label Fetch", "download: {0}".format(str(e)[:200]))
+    return None
+
+
+def _attach_label_bytes(dn_name, content):
+    """Attach label PDF bytes privately to the DN as d2c-label-<DN>.pdf."""
+    if not content:
+        return False
+    try:
         f = frappe.get_doc({
             "doctype": "File",
             "file_name": _label_file_name(dn_name),
             "attached_to_doctype": "Delivery Note",
             "attached_to_name": dn_name,
             "is_private": 1,
-            "content": resp.content,
+            "content": content,
         })
         f.flags.ignore_permissions = True
         f.insert(ignore_permissions=True)
@@ -718,6 +887,11 @@ def _download_and_attach_label(dn_name, url):
     except Exception as e:
         _log("D2C Label Fetch", "attach {0}: {1}".format(dn_name, str(e)[:300]))
         return False
+
+
+def _download_and_attach_label(dn_name, url):
+    """Download a single label PDF URL and attach it. Best-effort."""
+    return _attach_label_bytes(dn_name, _download_pdf_bytes(url))
 
 
 def _as_pdf_bytes(data):

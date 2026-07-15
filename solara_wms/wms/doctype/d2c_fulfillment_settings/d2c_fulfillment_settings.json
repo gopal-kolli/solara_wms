@@ -8,6 +8,8 @@
   "release_enabled",
   "label_fetch_enabled",
   "auto_invoice_on_label",
+  "clickpost_api_key",
+  "courier_cpid_map",
   "dry_run",
   "column_break_gates",
   "require_stock",
@@ -56,6 +58,19 @@
    "fieldname": "auto_invoice_on_label",
    "fieldtype": "Check",
    "label": "Auto Invoice On Label Fetch"
+  },
+  {
+   "fieldname": "clickpost_api_key",
+   "fieldtype": "Data",
+   "label": "ClickPost API Key",
+   "description": "Key for the ClickPost fetch-by-AWB label API (couriers like Shadowfax that don't write the label URL to the DN). Set on each site; not stored in code."
+  },
+  {
+   "fieldname": "courier_cpid_map",
+   "fieldtype": "Small Text",
+   "label": "Courier cp_id Map (JSON)",
+   "default": "{\"shadowfax\": 9, \"delhivery\": 4}",
+   "description": "courier(lowercase) -> ClickPost cp_id. Unknown couriers are auto-discovered and cached here."
   },
   {
    "default": "1",

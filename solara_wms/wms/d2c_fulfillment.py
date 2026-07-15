@@ -61,6 +61,13 @@ DEFAULT_PREFIX = "SHP"
 # Deferred-invoice SI (raised after the label is fetched, not at DN submit).
 SI_SERIES = "SHPSI27-.#####"
 D2C_INCOME_ACCOUNT = "Sales - WTBBPL"
+
+# ClickPost label fetch-by-AWB — for couriers (e.g. Shadowfax) that assign an AWB
+# but do NOT write the presigned label URL back onto the DN. cp_id is ClickPost's
+# per-courier id; seed the common ones, discover + cache the rest. API key lives
+# in D2C Fulfillment Settings.clickpost_api_key (not in code).
+CLICKPOST_LABEL_API = "https://www.clickpost.in/api/v1/fetch/shippinglabel/"
+DEFAULT_CPID_SEED = {"shadowfax": 9, "delhivery": 4}
 # Releasable Sales Order statuses: goods still to go out, nothing delivered yet.
 RELEASABLE_STATUSES = ("To Deliver and Bill", "To Deliver")
 
@@ -458,18 +465,23 @@ def _fetch_d2c_labels():
     # default trigger; the D2C Invoice Run screen stays as the manual fallback for
     # any DN whose auto-invoice was off/failed. Toggle: auto_invoice_on_label.
     auto_invoice = cint(settings.get("auto_invoice_on_label"))
+    cp_key = _cp_key(settings)
+    cpid_map = _cpid_map(settings)
 
-    # D2C DNs are identified by their Shopify linkage, not by naming series
-    # (series differs across sites: SHPDN27- on LIVE, DN-26- on TEST).
+    # Scope to the automation's OWN deferred DNs that have an AWB (not the manual
+    # sheet's DNs). We resolve the label two ways: the presigned URL on the DN if
+    # a courier wrote it, else the ClickPost fetch-by-AWB API (Shadowfax etc. only
+    # serve the label by AWB — they never write it to the DN).
     dns = frappe.get_all(
         "Delivery Note",
         filters={
-            "shopify_order_id": ["is", "set"],
+            "custom_d2c_defer_si": 1,
             "docstatus": 1,
             "posting_date": [">=", add_days(nowdate(), -lookback)],
-            "shipping_label": ["is", "set"],
+            "awb_number": ["is", "set"],
         },
-        fields=["name", "shipping_label", "custom_d2c_defer_si", "per_billed"],
+        fields=["name", "shipping_label", "awb_number", "courier_partner",
+                "custom_d2c_defer_si", "per_billed"],
         limit_page_length=cint(settings.get("release_batch_size")) or 200,
     )
 
@@ -477,7 +489,7 @@ def _fetch_d2c_labels():
     for dn in dns:
         has_label = True
         if not _has_attached_label(dn.name):
-            has_label = _download_and_attach_label(dn.name, dn.shipping_label)
+            has_label = _attach_label_for_dn(dn, cp_key, cpid_map, settings)
             if has_label:
                 fetched += 1
             else:
@@ -502,6 +514,93 @@ def _fetch_d2c_labels():
         )
     return {"attached": fetched, "pending": pending,
             "invoiced": invoiced, "inv_failed": inv_failed}
+
+
+def _cp_key(settings):
+    return (settings.get("clickpost_api_key") or "").strip()
+
+
+def _cpid_map(settings):
+    """courier(lowercase) -> ClickPost cp_id. Seed defaults + settings overrides."""
+    m = dict(DEFAULT_CPID_SEED)
+    raw = (settings.get("courier_cpid_map") or "").strip()
+    if raw:
+        try:
+            m.update({str(k).strip().lower(): int(v)
+                      for k, v in json.loads(raw).items()})
+        except Exception:
+            pass
+    return m
+
+
+def _awb_courier_pairs(dn):
+    """(awb, courier) pairs for a DN. Automation DNs are single-parcel so this is
+    normally one pair; multi-box combos (awb_number + custom_awb_2) yield two."""
+    awbs = [a.strip() for a in str(dn.get("awb_number") or "").split(",") if a.strip()]
+    cours = [c.strip() for c in str(dn.get("courier_partner") or "").split(",") if c.strip()]
+    if dn.get("custom_awb_2"):
+        awbs.append(str(dn["custom_awb_2"]).strip())
+        cours.append(str(dn.get("custom_courier_2") or dn.get("courier_partner") or "").strip())
+    seen, pairs = set(), []
+    for i, a in enumerate(awbs):
+        if a in seen:
+            continue
+        seen.add(a)
+        pairs.append((a, cours[i] if i < len(cours) else (cours[0] if cours else "")))
+    return pairs
+
+
+def _fetch_cp_label_url(awb, cp_id, cp_key):
+    """ClickPost label-fetch by AWB (read-only: regenerate=false). Returns the
+    presigned label PDF URL, or None."""
+    if not (awb and cp_id and cp_key):
+        return None
+    try:
+        import requests
+        r = requests.get(CLICKPOST_LABEL_API, params={
+            "key": cp_key, "waybill": awb, "cp_id": cp_id, "regenerate": "false",
+        }, timeout=25)
+        if r.status_code == 200:
+            j = r.json()
+            if j.get("meta", {}).get("success"):
+                return (j.get("result") or {}).get("shipping_label")
+    except Exception:
+        pass
+    return None
+
+
+def _attach_label_for_dn(dn, cp_key, cpid_map, settings):
+    """Resolve + attach the label PDF for one DN. Order: (1) presigned URL already
+    on the DN, (2) ClickPost fetch-by-AWB using the courier's mapped cp_id,
+    (3) fallback — try every known cp_id against the AWB (covers a blank/unmapped
+    courier_partner on a common courier). Returns True once a label is attached.
+
+    A courier ClickPost serves that isn't in the seed/settings map just needs its
+    cp_id added to `courier_cpid_map` in D2C Fulfillment Settings — no code change,
+    no auto-probing (which would hammer the API for couriers that have no label)."""
+    # 1. presigned URL on the DN (couriers that write it back)
+    if dn.get("shipping_label") and _download_and_attach_label(dn.name, dn.shipping_label):
+        return True
+    if not cp_key:
+        return False
+    # 2. fetch-by-AWB via the courier's mapped cp_id
+    tried = set()
+    for awb, courier in _awb_courier_pairs(dn):
+        cp_id = cpid_map.get((courier or "").strip().lower())
+        if cp_id:
+            tried.add(cp_id)
+            url = _fetch_cp_label_url(awb, cp_id, cp_key)
+            if url and _download_and_attach_label(dn.name, url):
+                return True
+    # 3. fallback: try every known cp_id against the primary AWB
+    pairs = _awb_courier_pairs(dn)
+    if pairs:
+        awb = pairs[0][0]
+        for cp_id in sorted(set(cpid_map.values()) - tried):
+            url = _fetch_cp_label_url(awb, cp_id, cp_key)
+            if url and _download_and_attach_label(dn.name, url):
+                return True
+    return False
 
 
 def _auto_invoice_deferred_dn(dn_name):

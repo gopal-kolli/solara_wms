@@ -24,5 +24,18 @@
   "read_only": 1,
   "insert_after": "is_return",
   "description": "Set to 1 by the D2C release automation. While 1, the 'Auto Create SI on Shopify DN Submit' script SKIPS this DN so no invoice is raised at submit (the DN exists only to produce the AWB + label for packing). The SHPSI27 invoice is created later, after physical dispatch, via the evening D2C Invoice Run (invoice-after-dispatch). Manual sheet-flow DNs leave this 0 and invoice at submit as before."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_shopify_fulfilled",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_shopify_fulfilled",
+  "label": "Shopify Fulfilled",
+  "fieldtype": "Check",
+  "default": "0",
+  "read_only": 1,
+  "insert_after": "custom_d2c_defer_si",
+  "description": "Set by the D2C label-fetch job once the Shopify fulfillment + tracking is pushed. Prevents re-pushing."
  }
 ]

@@ -8,6 +8,7 @@
   "release_enabled",
   "label_fetch_enabled",
   "auto_invoice_on_label",
+  "auto_fulfill_shopify",
   "clickpost_api_key",
   "courier_cpid_map",
   "dry_run",
@@ -58,6 +59,13 @@
    "fieldname": "auto_invoice_on_label",
    "fieldtype": "Check",
    "label": "Auto Invoice On Label Fetch"
+  },
+  {
+   "default": "1",
+   "fieldname": "auto_fulfill_shopify",
+   "fieldtype": "Check",
+   "label": "Auto Fulfill On Shopify",
+   "description": "Push AWB + tracking to Shopify (mark fulfilled) for the automation's deferred DNs. Replaces the broken 'Auto Sync AWB to Shopify' server script."
   },
   {
    "fieldname": "clickpost_api_key",

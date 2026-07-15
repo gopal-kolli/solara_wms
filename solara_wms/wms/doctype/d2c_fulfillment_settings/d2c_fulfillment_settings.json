@@ -7,6 +7,7 @@
   "gates_section",
   "release_enabled",
   "label_fetch_enabled",
+  "auto_invoice_on_label",
   "dry_run",
   "column_break_gates",
   "require_stock",
@@ -48,6 +49,13 @@
    "fieldname": "label_fetch_enabled",
    "fieldtype": "Check",
    "label": "Label Fetch Enabled"
+  },
+  {
+   "default": "1",
+   "description": "Auto-create the SHPSI27 the moment a deferred DN's label is fetched (invoice-on-label). Off = invoice only via the manual D2C Invoice Run screen.",
+   "fieldname": "auto_invoice_on_label",
+   "fieldtype": "Check",
+   "label": "Auto Invoice On Label Fetch"
   },
   {
    "default": "1",

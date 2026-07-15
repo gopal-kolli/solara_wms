@@ -170,46 +170,116 @@ def _max_order_lines(settings):
     return val if val > 0 else DEFAULT_MAX_ORDER_LINES
 
 
+def _split_combos(settings):
+    """Parent SKU -> ordered list of child SKUs (one physical parcel each).
+    Mirrors the LIVE ClickPost script's SPLIT_COMBOS; settings-overridable via
+    `split_combos` (JSON) so the app's parcel plan and the CP minter stay in sync.
+    This is the ONLY place a per-parcel item breakdown exists for a bundle SKU."""
+    default = {"SOL-AFO-501-JUC-121": ["SOL-AF-501", "SOL-JUC-121"]}
+    raw = (settings.get("split_combos") or "").strip()
+    if raw:
+        try:
+            return {str(k).strip().upper(): list(v) for k, v in json.loads(raw).items()}
+        except Exception:
+            _log("D2C Config", "split_combos is not valid JSON — using default")
+    return {k.upper(): v for k, v in default.items()}
+
+
+def _bin_pack_category(cat, pieces, cap):
+    """Pack one combinable category's full-box pieces into cap-sized cartons,
+    KEEPING item identity. Produces ceil(total_qty / cap) cartons — identical to
+    the box-count math — with the specific items assigned to each carton."""
+    cap = cap if cap > 0 else 1
+    cartons, cur, cur_n = [], [], 0
+    for p in pieces:
+        remaining, code = cint(p["qty"]), p["item_code"]
+        while remaining > 0:
+            take = min(cap - cur_n, remaining)
+            cur.append({"item_code": code, "qty": take})
+            cur_n += take
+            remaining -= take
+            if cur_n >= cap:
+                cartons.append({"items": cur, "kind": "category:" + cat})
+                cur, cur_n = [], 0
+    if cur:
+        cartons.append({"items": cur, "kind": "category:" + cat})
+    return cartons
+
+
+def _order_parcels(so, box_map, settings):
+    """Assign this order's items to physical parcels using the SAME validated
+    rules as the box count, but KEEPING item identity so the AWB split knows what
+    goes in each box. Returns a list of parcels:
+        [{"items": [{"item_code":.., "qty":..}], "kind": ".."}]
+
+    Rules (mirror _order_box_count):
+      - non-combinable single-box item (appliance): each unit -> its own parcel
+      - combinable-category item (Cookware/Drinkware), boxes==1: stacks with its
+        peers, bin-packed into combine_piece_cap-sized cartons
+      - multi-box SKU (boxes>=2): child SKUs from the combo map, one parcel each;
+        if no combo map is known, `boxes` parcels of the SKU per unit
+      - nestable accessory (boxes==0): rides inside the first parcel, never its
+        own box, never dropped
+    Floored at 1 parcel. Does NOT apply the jumbo guard — the caller gates that.
+
+    NOTE (bug fix): a boxes>=2 line is routed to the multi-box path REGARDLESS of
+    category. Previously a combinable-category SKU set to 2 boxes was mis-counted
+    as a single stackable piece (silent under-ship); now it correctly multi-boxes."""
+    combinable = _combinable_categories(settings)
+    cap = _combine_piece_cap(settings)
+    combos = _split_combos(settings)
+
+    parcels = []       # own-box / combo / multibox-sku parcels
+    cat_pieces = {}    # category -> [{item_code, qty}] full-box pieces to stack
+    nestables = []     # boxes==0 items, ride inside parcel 1
+
+    for it in so.items:
+        code = it.get("item_code")
+        qty = cint(it.get("qty"))
+        if not code or qty <= 0:
+            continue
+        boxes = _item_boxes(code, box_map)
+        cat = _item_category(code)
+        if boxes == 0:
+            nestables.append({"item_code": code, "qty": qty})
+        elif boxes >= 2:
+            children = combos.get(code.upper())
+            for _u in range(qty):
+                if children:
+                    for child in children:
+                        parcels.append({"items": [{"item_code": child, "qty": 1}], "kind": "combo"})
+                else:
+                    for _b in range(boxes):
+                        parcels.append({"items": [{"item_code": code, "qty": 1}], "kind": "multibox_sku"})
+        elif cat in combinable:
+            cat_pieces.setdefault(cat, []).append({"item_code": code, "qty": qty})
+        else:
+            for _u in range(qty):
+                parcels.append({"items": [{"item_code": code, "qty": 1}], "kind": "own_box"})
+
+    for cat, pieces in cat_pieces.items():
+        parcels.extend(_bin_pack_category(cat, pieces, cap))
+
+    if not parcels:
+        parcels.append({"items": [], "kind": "single"})
+    for n in nestables:  # nestables ride in the first parcel
+        parcels[0]["items"].append(n)
+    return parcels
+
+
 def _order_box_count(so, box_map, settings):
-    """Boxes this order ships in, for AWB planning. Two stacking rules:
-
-    1. Per-SKU (Item.custom_boxes_per_unit, safety-net box_map): 0 = nestable
-       accessory that rides inside a parent, 1 = own box, 2+ = multi-box combo.
-    2. Category-collapse: items in a COMBINABLE category (Cookware/Drinkware)
-       STACK — any number of them (up to combine_piece_cap per carton) ship in
-       ONE box together. Appliances/others do NOT collapse, so an appliance +
-       a cookware piece = 1 (appliance) + 1 (cookware stack) = 2 boxes.
-
-    Box count = ceil(pieces / cap) per combinable category present, PLUS the
-    plain per-SKU box sum of every non-combinable line (nestable 0s add nothing).
-    Floored at 1. == 1 means single-AWB (Phase 1); >= 2 is Phase 2 / sheet.
+    """Number of physical boxes this order ships in = number of parcels the split
+    would produce (see _order_parcels), floored at 1. == 1 means single-AWB
+    (Phase 1); >= 2 is multi-box.
 
     Jumbo guard: an order with more distinct lines than max_order_lines is too
     complex to trust the stacking assumptions (validated on a 7-line triply order
-    that shipped 2 AWBs) — force >= 2 so it stays on the sheet."""
-    lines = [it for it in so.items if cint(it.qty) > 0]
+    that shipped 2 AWBs) — force >= 2 (sentinel) so it stays on the sheet and is
+    never auto-split."""
+    lines = [it for it in so.items if cint(it.get("qty")) > 0]
     if len(lines) > _max_order_lines(settings):
-        return 2
-
-    combinable = _combinable_categories(settings)
-    cap = _combine_piece_cap(settings)
-
-    cat_pieces = {}   # combinable category -> stacked piece count
-    other_boxes = 0   # per-SKU boxes for everything else
-    for it in so.items:
-        boxes = _item_boxes(it.item_code, box_map)
-        qty = cint(it.qty)
-        cat = _item_category(it.item_code)
-        # A full-box item (>=1) in a combinable category stacks with its peers.
-        # Nestable accessories (0) never occupy a box — they ride along.
-        if boxes >= 1 and cat in combinable:
-            cat_pieces[cat] = cat_pieces.get(cat, 0) + qty
-        else:
-            other_boxes += boxes * qty
-
-    # ceil(pieces / cap) without importing math
-    cat_boxes = sum(-(-pieces // cap) for pieces in cat_pieces.values())
-    return max(cat_boxes + other_boxes, 1)
+        return 2  # jumbo sentinel — not a trustworthy parcel quantity
+    return len(_order_parcels(so, box_map, settings))
 
 
 def _source_warehouse(settings):
@@ -388,7 +458,10 @@ def _run_release(settings, dry_run=False):
         # (they ride inside the parent's box); same-category cookware/drinkware
         # stacks into one box; true combos + appliance-with-cookware count 2+.
         # Multi-box orders are Phase 2 territory — they stay on the manual sheet.
-        if _order_box_count(so, box_map, settings) != 1:
+        # box_count is also stamped on the DN below and enforced by the AWB guard
+        # (a DN can never ship with fewer AWBs than boxes).
+        box_count = _order_box_count(so, box_map, settings)
+        if box_count != 1:
             res["skipped_multibox"] += 1
             continue
 
@@ -412,7 +485,7 @@ def _run_release(settings, dry_run=False):
             res["created_dns"].append({"so": so_name, "dn": "(dry_run)"})
             continue
 
-        dn_name = _make_and_submit_dn(so_name, warehouse, res)
+        dn_name = _make_and_submit_dn(so_name, warehouse, res, box_count)
         if dn_name:
             res["created"] += 1
             res["created_dns"].append({"so": so_name, "dn": dn_name})
@@ -420,7 +493,7 @@ def _run_release(settings, dry_run=False):
     return res
 
 
-def _make_and_submit_dn(so_name, warehouse, res):
+def _make_and_submit_dn(so_name, warehouse, res, box_count=1):
     """One savepoint-isolated SO→DN release. Returns DN name or None."""
     from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 
@@ -439,6 +512,11 @@ def _make_and_submit_dn(so_name, warehouse, res):
         # raised later, after dispatch, via the evening D2C Invoice Run. (Manual
         # sheet-flow DNs are unflagged and keep invoicing at submit as before.)
         dn.custom_d2c_defer_si = 1
+        # Expected physical boxes — the AWB guard blocks label/invoice/dispatch if
+        # the courier mints fewer AWBs than this, so a multi-box order can never
+        # ship a parcel short.
+        if dn.meta.has_field("custom_box_count"):
+            dn.custom_box_count = box_count
         dn.flags.ignore_permissions = True
         dn.insert(ignore_permissions=True)
         dn.submit()  # ← triggers CP AWB + Shopify sync (SI is deferred, see flag)
@@ -488,9 +566,11 @@ def _fetch_d2c_labels():
               "custom_d2c_defer_si", "per_billed", "shopify_order_id",
               "custom_shopify_fulfilled"]
     meta = frappe.get_meta("Delivery Note")
-    for f in ("custom_awb_2", "custom_courier_2"):
+    for f in ("custom_awb_2", "custom_courier_2", "custom_box_count",
+              "custom_awb_shortfall"):
         if meta.has_field(f):
             fields.append(f)
+    has_shortfall_field = meta.has_field("custom_awb_shortfall")
 
     # Scope to the automation's OWN deferred DNs that have an AWB (not the manual
     # sheet's DNs). We resolve the label two ways: the presigned URL on the DN if
@@ -517,12 +597,26 @@ def _fetch_d2c_labels():
     deadline = time.monotonic() + (cint(settings.get("label_time_budget_sec")) or 210)
 
     fetched = pending = invoiced = inv_failed = fulfilled = ful_failed = errors = 0
+    shortfall = 0
     for dn in dns:
         if time.monotonic() > deadline:
             _log("D2C Label Fetch", "time budget hit — processed part of batch, rest next run")
             break
         # Each DN isolated: a per-row error must never abort the whole */15 batch.
         try:
+            # AWB GUARD: a multi-box DN must carry at least box_count AWBs before we
+            # do ANYTHING (fulfill/label/invoice). If the courier minted fewer AWBs
+            # than boxes, the order is a parcel short — hold it visibly, never ship.
+            box_count = cint(dn.get("custom_box_count")) or 1
+            if box_count > 1 and len(_awb_courier_pairs(dn)) < box_count:
+                shortfall += 1
+                if has_shortfall_field and not cint(dn.get("custom_awb_shortfall")):
+                    frappe.db.set_value("Delivery Note", dn.name,
+                                        "custom_awb_shortfall", 1)
+                    frappe.db.commit()
+                    _log("D2C AWB Guard", "SHORTFALL {0}: {1} AWB(s) < {2} boxes — held".format(
+                        dn.name, len(_awb_courier_pairs(dn)), box_count))
+                continue
             # Fulfillment first — needs only the AWB, so it never waits on the label.
             if do_fulfill and not cint(dn.get("custom_shopify_fulfilled")):
                 outcome = _try_fulfill(dn)
@@ -557,16 +651,19 @@ def _fetch_d2c_labels():
             errors += 1
             _log("D2C Label Fetch", "DN {0}: {1}".format(dn.get("name"), str(e)[:250]))
 
-    if fetched or pending or invoiced or inv_failed or fulfilled or ful_failed or errors:
+    if (fetched or pending or invoiced or inv_failed or fulfilled or ful_failed
+            or errors or shortfall):
         _log(
             "D2C Label Fetch",
             "attached={0} pending={1} invoiced={2} inv_failed={3} "
-            "fulfilled={4} ful_failed={5} errors={6}".format(
-                fetched, pending, invoiced, inv_failed, fulfilled, ful_failed, errors),
+            "fulfilled={4} ful_failed={5} errors={6} awb_shortfall={7}".format(
+                fetched, pending, invoiced, inv_failed, fulfilled, ful_failed,
+                errors, shortfall),
         )
     return {"attached": fetched, "pending": pending,
             "invoiced": invoiced, "inv_failed": inv_failed,
-            "fulfilled": fulfilled, "ful_failed": ful_failed, "errors": errors}
+            "fulfilled": fulfilled, "ful_failed": ful_failed,
+            "errors": errors, "awb_shortfall": shortfall}
 
 
 def _cp_key(settings):
@@ -1004,13 +1101,19 @@ def _todays_d2c_dns(settings, on_date):
     """ALL submitted D2C DNs for the date (labelled or not — unlabelled ones
     surface in missing_labels rather than silently vanishing), in a stable
     pack sequence: batch identical single-SKU orders together, then by AWB."""
+    filters = {
+        "shopify_order_id": ["is", "set"],
+        "docstatus": 1,
+        "posting_date": on_date,
+    }
+    # AWB guard at the pack choke point: a DN held for an AWB shortfall (fewer AWBs
+    # than boxes) is EXCLUDED from the pick batch, so it can never be picked/shipped
+    # a parcel short.
+    if frappe.get_meta("Delivery Note").has_field("custom_awb_shortfall"):
+        filters["custom_awb_shortfall"] = 0
     dns = frappe.get_all(
         "Delivery Note",
-        filters={
-            "shopify_order_id": ["is", "set"],
-            "docstatus": 1,
-            "posting_date": on_date,
-        },
+        filters=filters,
         fields=["name", "awb_number", "courier_partner", "customer",
                 "customer_name", "shopify_order_id", "shipping_label"],
         limit_page_length=0,

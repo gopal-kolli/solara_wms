@@ -37,5 +37,31 @@
   "read_only": 1,
   "insert_after": "custom_d2c_defer_si",
   "description": "Set by the D2C label-fetch job once the Shopify fulfillment + tracking is pushed. Prevents re-pushing."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_box_count",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_box_count",
+  "label": "D2C Box Count",
+  "fieldtype": "Int",
+  "default": "0",
+  "read_only": 1,
+  "insert_after": "custom_shopify_fulfilled",
+  "description": "Expected physical boxes for this D2C order (from the box model). The AWB guard blocks label/invoice/dispatch if fewer AWBs are minted."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_awb_shortfall",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_awb_shortfall",
+  "label": "AWB Shortfall (held)",
+  "fieldtype": "Check",
+  "default": "0",
+  "read_only": 1,
+  "insert_after": "custom_box_count",
+  "description": "Set when the courier minted fewer AWBs than D2C Box Count \u2014 the DN is HELD (not labelled/invoiced/dispatched) until fixed."
  }
 ]

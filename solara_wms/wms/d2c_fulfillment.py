@@ -58,6 +58,9 @@ from solara_wms.wms.utils import get_available_qty
 SETTINGS_DOCTYPE = "D2C Fulfillment Settings"
 DEFAULT_WAREHOUSE = "Main Warehouse - WTBBPL"
 DEFAULT_PREFIX = "SHP"
+# Deferred-invoice SI (raised after the label is fetched, not at DN submit).
+SI_SERIES = "SHPSI27-.#####"
+D2C_INCOME_ACCOUNT = "Sales - WTBBPL"
 # Releasable Sales Order statuses: goods still to go out, nothing delivered yet.
 RELEASABLE_STATUSES = ("To Deliver and Bill", "To Deliver")
 
@@ -450,6 +453,11 @@ def _fetch_d2c_labels():
         return
 
     lookback = cint(settings.get("lookback_days")) or 3
+    # Auto-invoice a deferred DN the moment its label is on hand (label fetched +
+    # DN posted). Ops decision 2026-07-15 — replaces the manual evening run as the
+    # default trigger; the D2C Invoice Run screen stays as the manual fallback for
+    # any DN whose auto-invoice was off/failed. Toggle: auto_invoice_on_label.
+    auto_invoice = cint(settings.get("auto_invoice_on_label"))
 
     # D2C DNs are identified by their Shopify linkage, not by naming series
     # (series differs across sites: SHPDN27- on LIVE, DN-26- on TEST).
@@ -461,23 +469,116 @@ def _fetch_d2c_labels():
             "posting_date": [">=", add_days(nowdate(), -lookback)],
             "shipping_label": ["is", "set"],
         },
-        fields=["name", "shipping_label"],
+        fields=["name", "shipping_label", "custom_d2c_defer_si", "per_billed"],
         limit_page_length=cint(settings.get("release_batch_size")) or 200,
     )
 
-    fetched = pending = 0
+    fetched = pending = invoiced = inv_failed = 0
     for dn in dns:
-        if _has_attached_label(dn.name):
-            continue
-        ok = _download_and_attach_label(dn.name, dn.shipping_label)
-        if ok:
-            fetched += 1
-        else:
-            pending += 1
+        has_label = True
+        if not _has_attached_label(dn.name):
+            has_label = _download_and_attach_label(dn.name, dn.shipping_label)
+            if has_label:
+                fetched += 1
+            else:
+                pending += 1
+        # Auto-invoice once the label is on hand: only deferred, not-yet-billed DNs.
+        if (
+            auto_invoice and has_label
+            and cint(dn.get("custom_d2c_defer_si"))
+            and flt(dn.get("per_billed")) < 0.01
+        ):
+            outcome = _auto_invoice_deferred_dn(dn.name)
+            if outcome == "created":
+                invoiced += 1
+            elif outcome == "failed":
+                inv_failed += 1
 
-    if fetched or pending:
-        _log("D2C Label Fetch", "attached={0} pending={1}".format(fetched, pending))
-    return {"attached": fetched, "pending": pending}
+    if fetched or pending or invoiced or inv_failed:
+        _log(
+            "D2C Label Fetch",
+            "attached={0} pending={1} invoiced={2} inv_failed={3}".format(
+                fetched, pending, invoiced, inv_failed),
+        )
+    return {"attached": fetched, "pending": pending,
+            "invoiced": invoiced, "inv_failed": inv_failed}
+
+
+def _auto_invoice_deferred_dn(dn_name):
+    """Create + submit the deferred SHPSI27 for one labelled DN, savepoint-isolated
+    so one invoice failure never aborts the label-fetch pass. Returns
+    'created' | 'skipped' | 'failed'."""
+    sp = "d2cinv_" + dn_name.replace("-", "_")[:40]
+    try:
+        frappe.db.savepoint(sp)
+        si_name = create_si_from_deferred_dn(dn_name)
+        frappe.db.commit()
+        return "created" if si_name else "skipped"
+    except Exception as e:
+        frappe.db.rollback(save_point=sp)
+        _log("D2C Auto Invoice", "{0}: {1}".format(dn_name, str(e)[:300]))
+        return "failed"
+
+
+def create_si_from_deferred_dn(dn_name):
+    """Create + submit the SHPSI27 for a dispatched/labelled D2C Delivery Note.
+    Single source of truth for deferred D2C invoicing — used by both the
+    auto-invoice-on-label hook and the manual D2C Invoice Run screen. Mirrors the
+    LIVE 'Auto Create SI on Shopify DN Submit' server script (SHPSI27 series,
+    tax-inclusive print rate, Sales - WTBBPL income, payment-schedule re-anchor,
+    PPCOD prepaid, submit -> IRN via India Compliance). Returns SI name, or None
+    when the DN should not be invoiced (B2B2C, no SHP SO, or already billed)."""
+    from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice
+
+    doc = frappe.get_doc("Delivery Note", dn_name)
+
+    if (doc.get("custom_order_type") or "") == "B2B2C":
+        return None
+
+    so_name = ""
+    for item in doc.items:
+        if item.get("against_sales_order"):
+            so_name = item.against_sales_order
+            break
+    if not so_name or not so_name.startswith("SHP"):
+        return None
+
+    if flt(frappe.db.get_value("Sales Order", so_name, "per_billed")) > 0:
+        return None
+
+    si = make_sales_invoice(source_name=doc.name)
+    si.naming_series = SI_SERIES
+    si.posting_date = doc.posting_date
+    si.set_posting_time = 1
+
+    so_order_type = frappe.db.get_value("Sales Order", so_name, "custom_order_type") or ""
+    if so_order_type:
+        si.custom_payment_method = so_order_type
+
+    so_prepaid = flt(frappe.db.get_value("Sales Order", so_name, "custom_prepaid_amount"))
+    if so_prepaid > 0:
+        si.custom_ppcod_prepaid_amount = so_prepaid
+
+    # Re-anchor payment_schedule due dates off the DN posting date.
+    for ps in si.payment_schedule:
+        ps.due_date = add_days(doc.posting_date, cint(ps.credit_days))
+    if si.payment_schedule:
+        si.due_date = max(str(ps.due_date) for ps in si.payment_schedule)
+    else:
+        si.due_date = doc.posting_date
+
+    # Tax-inclusive pricing (matches the Shopify customer-paying total).
+    for t in si.taxes:
+        t.included_in_print_rate = 1
+
+    # Force Shopify revenue to Sales - WTBBPL (override channel-specific defaults).
+    for it in si.items:
+        it.income_account = D2C_INCOME_ACCOUNT
+
+    si.flags.ignore_permissions = True
+    si.insert()
+    si.submit()
+    return si.name
 
 
 def _label_file_name(dn_name):

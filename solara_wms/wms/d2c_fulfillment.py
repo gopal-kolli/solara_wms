@@ -730,12 +730,14 @@ def push_shopify_fulfillment(dn):
     if not (oid and awbs):
         return "skipped"
 
-    shop_url = frappe.db.get_single_value("Shopify Setting", "shopify_url")
-    if not shop_url:
-        return "skipped"
-    token = frappe.utils.password.get_decrypted_password(
-        "Shopify Setting", "Shopify Setting", "password", raise_exception=False)
-    if not token:
+    # Read shop_url + token from the Shopify Setting doc ATTRIBUTE — exactly like the
+    # proven-working blinkit_edi inventory sync. NOTE: get_decrypted_password() reads
+    # the __Auth table which holds a stale/different value here and 401s; the live
+    # Admin-API token is the doc's `password` field attribute.
+    shop = frappe.get_doc("Shopify Setting")
+    shop_url = shop.shopify_url
+    token = shop.password
+    if not (shop_url and token):
         return "skipped"
 
     carrier_raw = (pairs[0][1] or dn.get("courier_partner") or "Delhivery").strip()

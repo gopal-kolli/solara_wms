@@ -792,7 +792,7 @@ def push_shopify_fulfillment(dn):
             "{ fulfillment { id status } userErrors { message } } }")
     cpayload = {"query": cmut, "variables": {"f": {
         "lineItemsByFulfillmentOrder": [{"fulfillmentOrderId": fid} for fid in open_fos],
-        "trackingInfo": track_info, "notifyCustomer": bool(notify)}}}
+        "trackingInfo": track_info, "notifyCustomer": True}}}
     r = requests.post(gql, data=json.dumps(cpayload), headers=headers, timeout=30)
     jc = _shopify_json(r)
     node = ((jc or {}).get("data") or {}).get("fulfillmentCreateV2") or {}

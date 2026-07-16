@@ -1165,6 +1165,11 @@ def _todays_d2c_dns(settings, on_date):
         "docstatus": 1,
         "posting_date": ["between", [start, on_date]],
     }
+    # Only the automation's OWN DNs. While the manual sheet coexists, its DNs
+    # (already shipped by the floor) must never enter a pick batch / wave email;
+    # after the sheet retires every D2C DN carries this flag anyway.
+    if frappe.get_meta("Delivery Note").has_field("custom_d2c_defer_si"):
+        filters["custom_d2c_defer_si"] = 1
     # AWB guard at the pack choke point: a DN held for an AWB shortfall (fewer AWBs
     # than boxes) is EXCLUDED from the pick batch, so it can never be picked/shipped
     # a parcel short.

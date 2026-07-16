@@ -5,9 +5,10 @@ Auto-Shipped tabs) — replaces the laptop-cron version of scripts/d2c_ops_sheet
 in the finance repo. Runs every 30 min from the bench scheduler, gated by
 D2C Fulfillment Settings.ops_sheet_enabled.
 
-Secrets: the Google service-account key lives in SITE CONFIG
-(`ops_sheet_sa_key`, set via the Frappe Cloud dashboard) — deliberately NOT a
-doctype field, so no REST-readable token can exfiltrate it. Uses google-auth
+Secrets: the Google service-account key lives in the `ops_sheet_sa_key`
+PASSWORD field on D2C Fulfillment Settings — encrypted at rest in __Auth and
+masked over REST (FC's dashboard only permits whitelisted site-config keys, so
+site config wasn't available; frappe.conf still wins if a key is ever set there). Uses google-auth
 (a frappe core dependency) + the Sheets v4 REST API directly — no gspread /
 discovery client needed on the bench.
 
@@ -45,10 +46,19 @@ def push_ops_sheet():
         if not cint(settings.get("ops_sheet_enabled")):
             return
         sheet_id = (settings.get("ops_sheet_id") or "").strip()
+        # Site config would be preferable, but FC's dashboard only allows
+        # whitelisted config keys — so the key lives in a Password field
+        # (encrypted in __Auth, masked over REST). site config still wins if set.
         sa_key = frappe.conf.get("ops_sheet_sa_key")
+        if not sa_key:
+            try:
+                sa_key = frappe.get_doc(d2c.SETTINGS_DOCTYPE).get_password(
+                    "ops_sheet_sa_key", raise_exception=False)
+            except Exception:
+                sa_key = None
         if not sheet_id or not sa_key:
-            d2c._log("D2C Ops Sheet", "enabled, but ops_sheet_id (settings) or "
-                     "ops_sheet_sa_key (site config) is missing — skipped")
+            d2c._log("D2C Ops Sheet", "enabled, but ops_sheet_id or the "
+                     "ops_sheet_sa_key secret is missing — skipped")
             return
         session = _session(sa_key)
         stamp = now_datetime().strftime("%Y-%m-%d %H:%M")

@@ -1146,14 +1146,24 @@ def _label_pdf_bytes(dn_name, shipping_label_url):
 
 # ─── PREPARE TODAY'S SHIPMENTS: pick list + combined labels ───────
 
+def _prepare_lookback(settings):
+    # 0 is a legitimate value (today only); None/unset falls back to 1 so
+    # overnight releases (posted yesterday, after the last wave) roll into the
+    # morning wave instead of stranding unprinted.
+    val = settings.get("prepare_lookback_days")
+    return cint(val) if val is not None else 1
+
+
 def _todays_d2c_dns(settings, on_date):
-    """ALL submitted D2C DNs for the date (labelled or not — unlabelled ones
-    surface in missing_labels rather than silently vanishing), in a stable
-    pack sequence: batch identical single-SKU orders together, then by AWB."""
+    """ALL submitted D2C DNs from (on_date - prepare_lookback) through on_date
+    (labelled or not — unlabelled ones surface in missing_labels rather than
+    silently vanishing), in a stable pack sequence: batch identical single-SKU
+    orders together, then by AWB."""
+    start = add_days(on_date, -_prepare_lookback(settings))
     filters = {
         "shopify_order_id": ["is", "set"],
         "docstatus": 1,
-        "posting_date": on_date,
+        "posting_date": ["between", [start, on_date]],
     }
     # AWB guard at the pack choke point: a DN held for an AWB shortfall (fewer AWBs
     # than boxes) is EXCLUDED from the pick batch, so it can never be picked/shipped
@@ -1182,9 +1192,12 @@ def _todays_d2c_dns(settings, on_date):
     return dns
 
 
-def _batched_dn_names(on_date):
-    """DNs already included in a prior prepare batch for the date."""
-    batches = frappe.get_all("D2C Prepare Batch", filters={"date": on_date},
+def _batched_dn_names(on_date, lookback=1):
+    """DNs already included in a prior prepare batch within the rolling window.
+    Window matches _todays_d2c_dns so a DN batched yesterday can't reprint today."""
+    start = add_days(on_date, -lookback)
+    batches = frappe.get_all("D2C Prepare Batch",
+                             filters={"date": ["between", [start, on_date]]},
                              fields=["name"], limit_page_length=0)
     if not batches:
         return set()
@@ -1211,7 +1224,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     on_date = getdate(on_date) if on_date else getdate(nowdate())
 
     all_dns = _todays_d2c_dns(settings, on_date)
-    already = _batched_dn_names(on_date)
+    already = _batched_dn_names(on_date, _prepare_lookback(settings))
     dns = [d for d in all_dns if d["name"] not in already]
 
     batch_no = len(frappe.get_all("D2C Prepare Batch", filters={"date": on_date},
@@ -1219,6 +1232,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     summary = {
         "date": str(on_date),
         "batch_no": batch_no,
+        "run_type": run_type if run_type in ("Ad-hoc", "Wave") else "Ad-hoc",
         "orders": len(dns),
         "already_prepared": len(already),
         "units": sum(flt(i.qty) for d in dns for i in d["items"]),
@@ -1268,7 +1282,85 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     _attach_outputs_to_batch(batch.name, result)
     frappe.db.commit()
     summary["batch"] = batch.name
+    _email_batch(batch.name, summary, settings)
     return summary
+
+
+def _file_bytes(file_url):
+    """Robust read of a just-generated output File (get_content → coerce →
+    disk-path fallback; same contract as the label reader from PR #4)."""
+    try:
+        f = frappe.get_doc("File", {"file_url": file_url})
+        content = f.get_content()
+        if isinstance(content, bytes):
+            return content
+        if isinstance(content, str):
+            return content.encode("latin-1", "ignore")
+    except Exception:
+        pass
+    try:
+        f = frappe.get_doc("File", {"file_url": file_url})
+        with open(f.get_full_path(), "rb") as fh:
+            return fh.read()
+    except Exception:
+        return None
+
+
+def _email_batch(batch_name, summary, settings):
+    """Email the batch's pick-list + labels PDFs to wave_email_recipients.
+    Fires on EVERY batch-creating Prepare run (wave or ad-hoc). Best-effort:
+    an email failure must never fail the batch itself. Oversized attachments
+    (>9 MB total) fall back to a links-only email."""
+    raw = (settings.get("wave_email_recipients") or "").strip()
+    if not raw:
+        return
+    recipients = [r.strip() for r in raw.replace(",", "\n").splitlines() if r.strip()]
+    if not recipients:
+        return
+    try:
+        attachments = []
+        total = 0
+        for url in (summary.get("pick_list_url"), summary.get("labels_pdf_url")):
+            if not url:
+                continue
+            content = _file_bytes(url)
+            if content:
+                total += len(content)
+                attachments.append({"fname": url.rsplit("/", 1)[-1], "fcontent": content})
+        if total > 9 * 1024 * 1024:
+            attachments = []  # links-only; SES bounces oversized mail silently
+        site = frappe.utils.get_url()
+        missing = summary.get("missing_labels") or []
+        body = (
+            "<p><b>D2C dispatch batch {batch}</b> — {orders} orders / {units:g} units "
+            "({run_type}, {date}, stamp {stamp})</p>"
+            "<ul><li>Pick list: <a href='{site}{pl}'>{pl_name}</a></li>"
+            "<li>Labels PDF: <a href='{site}{lb}'>{lb_name}</a></li></ul>"
+            "{attach_note}{missing_note}"
+            "<p>Ship these from the Atlas batch and SKIP them on the manual sheet.</p>"
+        ).format(
+            batch=batch_name, orders=summary.get("orders"), units=summary.get("units") or 0,
+            run_type=summary.get("run_type") or "", date=summary.get("date"),
+            stamp=summary.get("batch_stamp"), site=site,
+            pl=summary.get("pick_list_url") or "", pl_name=(summary.get("pick_list_url") or "").rsplit("/", 1)[-1],
+            lb=summary.get("labels_pdf_url") or "", lb_name=(summary.get("labels_pdf_url") or "").rsplit("/", 1)[-1],
+            attach_note="<p>Both PDFs attached.</p>" if attachments else
+                        "<p>PDFs too large to attach — use the links (Atlas login needed).</p>",
+            missing_note="<p>⚠ {0} order(s) missing a label at prepare time — they will "
+                         "surface in the next batch once labelled.</p>".format(len(missing)) if missing else "",
+        )
+        frappe.sendmail(
+            recipients=recipients,
+            subject="D2C batch {0} — {1} orders ({2})".format(
+                batch_name, summary.get("orders"), summary.get("run_type") or "Ad-hoc"),
+            message=body,
+            attachments=attachments or None,
+        )
+        _log("D2C Prepare Email", "batch {0} emailed to {1} ({2} attachment(s), {3} KB)".format(
+            batch_name, len(recipients), len(attachments), total // 1024))
+    except Exception:
+        _log("D2C Prepare Email", "batch {0}: send failed (batch itself is fine)\n{1}".format(
+            batch_name, frappe.get_traceback()))
 
 
 def _attach_outputs_to_batch(batch_name, result):

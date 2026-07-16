@@ -1199,12 +1199,14 @@ def _batched_dn_names(on_date):
 
 
 @frappe.whitelist()
-def prepare_todays_shipments(on_date=None):
+def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     """Warehouse action. Build (1) a pick-list PDF and (2) a combined-labels PDF
     for the day's NOT-YET-PREPARED D2C Delivery Notes, and record them as a
     D2C Prepare Batch. Batch-aware: clicking again only emits orders that were
     not part of an earlier batch — re-clicks can never re-print already-packed
-    orders. Creates no stock/accounting documents; reprints via reprint_batch."""
+    orders. Creates no stock/accounting documents; reprints via reprint_batch.
+    run_type/wave_tag: "Wave" runs come from the scheduled 9/12/15 waves
+    (run_prepare_waves); the tag makes each wave fire at most once."""
     settings = _settings()
     on_date = getdate(on_date) if on_date else getdate(nowdate())
 
@@ -1245,6 +1247,8 @@ def prepare_todays_shipments(on_date=None):
         "date": on_date,
         "batch_no": batch_no,
         "batch_stamp": stamp,
+        "run_type": run_type if run_type in ("Ad-hoc", "Wave") else "Ad-hoc",
+        "wave_tag": wave_tag,
         "orders": len(dns),
         "units": summary["units"],
         "pick_list_url": result["pick_list_url"],
@@ -1261,9 +1265,59 @@ def prepare_todays_shipments(on_date=None):
     })
     batch.flags.ignore_permissions = True
     batch.insert(ignore_permissions=True)
+    _attach_outputs_to_batch(batch.name, result)
     frappe.db.commit()
     summary["batch"] = batch.name
     return summary
+
+
+def _attach_outputs_to_batch(batch_name, result):
+    """Link the generated pick-list/labels File docs to the batch record so they
+    show in its attachments sidebar and can't be swept by the same-name overwrite
+    in _save_output_file (which skips attached files)."""
+    for url in (result.get("pick_list_url"), result.get("labels_pdf_url")):
+        if not url:
+            continue
+        for f in frappe.get_all("File", filters={"file_url": url,
+                                                 "attached_to_name": ["is", "not set"]},
+                                fields=["name"]):
+            frappe.db.set_value("File", f.name,
+                                {"attached_to_doctype": "D2C Prepare Batch",
+                                 "attached_to_name": batch_name})
+
+
+def run_prepare_waves():
+    """Scheduler entry (*/15). Fires Prepare as a scheduled wave at the hours in
+    D2C Fulfillment Settings.prepare_wave_hours (site timezone, e.g. 9,12,15).
+    Idempotent per hour via wave_tag: a wave that already produced a batch never
+    re-fires; an EMPTY wave (no unbatched orders yet) creates no batch and simply
+    re-checks on the next */15 tick within the same hour, then lapses — orders
+    arriving later roll into the next wave or an ad-hoc run. Wrapped so a defect
+    can never wedge the shared scheduler (same contract as the other D2C jobs)."""
+    try:
+        settings = _settings()
+        if not cint(settings.get("prepare_waves_enabled")):
+            return
+        raw = (settings.get("prepare_wave_hours") or "9,12,15")
+        try:
+            hours = sorted({int(h.strip()) for h in raw.split(",") if h.strip()})
+        except Exception:
+            _log("D2C Prepare Wave", "prepare_wave_hours is not a comma list of hours — using 9,12,15")
+            hours = [9, 12, 15]
+        now = now_datetime()
+        if now.hour not in hours:
+            return
+        tag = "{0}-{1:02d}".format(now.strftime("%Y-%m-%d"), now.hour)
+        if frappe.get_all("D2C Prepare Batch", filters={"wave_tag": tag}, limit_page_length=1):
+            return  # this wave already produced its batch
+        summary = prepare_todays_shipments(run_type="Wave", wave_tag=tag)
+        if summary.get("batch"):
+            _log("D2C Prepare Wave", "wave {0} → batch {1}: {2} orders, labels={3}".format(
+                tag, summary["batch"], summary.get("orders"),
+                "missing " + str(len(summary.get("missing_labels") or [])) if summary.get("missing_labels") else "complete"))
+    except Exception:
+        frappe.db.rollback()
+        _log("D2C Prepare Wave", "FATAL (swallowed): " + frappe.get_traceback())
 
 
 @frappe.whitelist()

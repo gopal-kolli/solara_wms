@@ -20,6 +20,8 @@
   "release_known_combos",
   "enforce_cutoff_on_release",
   "cutoff_hour",
+  "prepare_waves_enabled",
+  "prepare_wave_hours",
   "scope_section",
   "so_series_prefix",
   "source_warehouse",
@@ -235,12 +237,26 @@
    "fieldname": "prepare_now",
    "fieldtype": "Button",
    "label": "Prepare Today's Shipments"
+  },
+  {
+   "fieldname": "prepare_waves_enabled",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Scheduled Prepare Waves",
+   "description": "Auto-run Prepare Today's Shipments at the wave hours below (pick list + labels per wave). Ad-hoc Prepare still works anytime."
+  },
+  {
+   "fieldname": "prepare_wave_hours",
+   "fieldtype": "Data",
+   "default": "9,12,15",
+   "label": "Wave Hours (24h, comma-separated)",
+   "description": "Site-timezone hours at which a wave fires, e.g. 9,12,15. A wave only creates a batch if there are new unbatched orders."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-10 00:00:00.000000",
+ "modified": "2026-07-16 18:30:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Fulfillment Settings",

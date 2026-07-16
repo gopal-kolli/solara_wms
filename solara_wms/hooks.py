@@ -48,6 +48,7 @@ scheduler_events = {
         "*/15 * * * *": [
             "solara_wms.wms.d2c_fulfillment.release_d2c_shipments",
             "solara_wms.wms.d2c_fulfillment.fetch_d2c_labels",
+            "solara_wms.wms.d2c_fulfillment.run_prepare_waves",
         ],
     },
 }

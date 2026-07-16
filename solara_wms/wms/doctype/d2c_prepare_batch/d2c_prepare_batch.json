@@ -8,7 +8,9 @@
   "date",
   "batch_no",
   "batch_stamp",
+  "run_type",
   "column_break_1",
+  "wave_tag",
   "orders",
   "units",
   "files_section",
@@ -35,7 +37,7 @@
    "read_only": 1
   },
   {
-   "description": "Generation stamp MMDDHHMM — names the output files (d2c-labels-<stamp>.pdf) and traces the batch to the moment it was generated.",
+   "description": "Generation stamp MMDDHHMM \u2014 names the output files (d2c-labels-<stamp>.pdf) and traces the batch to the moment it was generated.",
    "fieldname": "batch_stamp",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -43,8 +45,25 @@
    "read_only": 1
   },
   {
+   "fieldname": "run_type",
+   "fieldtype": "Select",
+   "label": "Run Type",
+   "options": "Ad-hoc\nWave",
+   "default": "Ad-hoc",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "wave_tag",
+   "fieldtype": "Data",
+   "label": "Wave Tag",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "YYYY-MM-DD-HH marker; ensures each scheduled wave fires once."
   },
   {
    "fieldname": "orders",
@@ -69,13 +88,15 @@
    "fieldname": "pick_list_url",
    "fieldtype": "Data",
    "label": "Pick List URL",
-   "read_only": 1
+   "read_only": 1,
+   "options": "URL"
   },
   {
    "fieldname": "labels_pdf_url",
    "fieldtype": "Data",
    "label": "Labels PDF URL",
-   "read_only": 1
+   "read_only": 1,
+   "options": "URL"
   },
   {
    "description": "Orders in this batch whose label PDF could not be resolved at prepare time.",
@@ -99,7 +120,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-07-11 00:00:00.000000",
+ "modified": "2026-07-16 18:30:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Prepare Batch",

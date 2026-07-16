@@ -24,6 +24,9 @@
   "prepare_wave_hours",
   "prepare_lookback_days",
   "wave_email_recipients",
+  "ops_sheet_section",
+  "ops_sheet_enabled",
+  "ops_sheet_id",
   "scope_section",
   "so_series_prefix",
   "source_warehouse",
@@ -266,12 +269,30 @@
    "fieldtype": "Small Text",
    "label": "Batch Email Recipients",
    "description": "Comma/newline separated emails. Every Prepare run that creates a batch (wave or ad-hoc) emails them the pick list + labels PDFs. Empty = no email."
+  },
+  {
+   "fieldname": "ops_sheet_section",
+   "fieldtype": "Section Break",
+   "label": "Ops Google Sheet"
+  },
+  {
+   "fieldname": "ops_sheet_enabled",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Push Ops Sheet",
+   "description": "Every 30 min, push Run Log + Exceptions + Auto-Shipped tabs to the Google Sheet below (server-side). Requires the service-account key in site config (ops_sheet_sa_key) \u2014 NOT stored in any doctype."
+  },
+  {
+   "fieldname": "ops_sheet_id",
+   "fieldtype": "Data",
+   "label": "Ops Sheet ID",
+   "description": "Google Sheet id (from its URL). Share the sheet as Editor with the service-account email."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-16 19:40:00.000000",
+ "modified": "2026-07-16 21:05:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Fulfillment Settings",

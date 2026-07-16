@@ -22,6 +22,8 @@
   "cutoff_hour",
   "prepare_waves_enabled",
   "prepare_wave_hours",
+  "prepare_lookback_days",
+  "wave_email_recipients",
   "scope_section",
   "so_series_prefix",
   "source_warehouse",
@@ -251,12 +253,25 @@
    "default": "9,12,15",
    "label": "Wave Hours (24h, comma-separated)",
    "description": "Site-timezone hours at which a wave fires, e.g. 9,12,15. A wave only creates a batch if there are new unbatched orders."
+  },
+  {
+   "fieldname": "prepare_lookback_days",
+   "fieldtype": "Int",
+   "default": "1",
+   "label": "Prepare Lookback (days)",
+   "description": "Prepare covers unbatched D2C DNs from this many days back through today \u2014 so overnight releases (posted yesterday, after the last wave) roll into the morning wave instead of stranding."
+  },
+  {
+   "fieldname": "wave_email_recipients",
+   "fieldtype": "Small Text",
+   "label": "Batch Email Recipients",
+   "description": "Comma/newline separated emails. Every Prepare run that creates a batch (wave or ad-hoc) emails them the pick list + labels PDFs. Empty = no email."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-16 18:30:00.000000",
+ "modified": "2026-07-16 19:40:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Fulfillment Settings",

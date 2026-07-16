@@ -621,6 +621,13 @@ def _fetch_d2c_labels():
     # a small dedicated cap keeps each */15 run inside the scheduler time budget
     # (each DN can do several Shopify + ClickPost HTTP calls + an SI submit).
     limit = cint(settings.get("label_batch_size")) or 40
+    # per_billed < 100 keeps fully-processed DNs out of the candidate set —
+    # invoicing is the LAST step of the chain, so anything fully billed is done.
+    # Without this, completed old DNs occupy the oldest-first batch slots for the
+    # whole lookback window and starve newer DNs (bit us on go-live day: 16-Jul's
+    # 100 DNs got no labels because 15-Jul's 59 completed DNs filled batch=25).
+    # A billed-but-unfulfilled DN can only arise from a manual out-of-band invoice;
+    # the fetch_labels_now button / D2C Invoice Run screen remain the fallback there.
     dns = frappe.get_all(
         "Delivery Note",
         filters={
@@ -628,6 +635,7 @@ def _fetch_d2c_labels():
             "docstatus": 1,
             "posting_date": [">=", add_days(nowdate(), -lookback)],
             "awb_number": ["is", "set"],
+            "per_billed": ["<", 100],
         },
         fields=fields,
         order_by="posting_date asc, creation asc",

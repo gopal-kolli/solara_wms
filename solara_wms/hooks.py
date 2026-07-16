@@ -50,6 +50,10 @@ scheduler_events = {
             "solara_wms.wms.d2c_fulfillment.fetch_d2c_labels",
             "solara_wms.wms.d2c_fulfillment.run_prepare_waves",
         ],
+        # Ops Google Sheet mirror — gated by ops_sheet_enabled; secrets in site config.
+        "*/30 * * * *": [
+            "solara_wms.wms.d2c_ops_sheet.push_ops_sheet",
+        ],
     },
 }
 

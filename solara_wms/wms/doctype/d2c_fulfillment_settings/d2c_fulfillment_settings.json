@@ -27,6 +27,7 @@
   "ops_sheet_section",
   "ops_sheet_enabled",
   "ops_sheet_id",
+  "ops_sheet_sa_key",
   "scope_section",
   "so_series_prefix",
   "source_warehouse",
@@ -287,12 +288,18 @@
    "fieldtype": "Data",
    "label": "Ops Sheet ID",
    "description": "Google Sheet id (from its URL). Share the sheet as Editor with the service-account email."
+  },
+  {
+   "fieldname": "ops_sheet_sa_key",
+   "fieldtype": "Password",
+   "label": "Service Account Key (JSON)",
+   "description": "Google service-account key JSON (Sheets scope). Password field: encrypted at rest, masked over REST. FC site-config custom keys aren't allowed, so this is the secret store."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-16 21:05:00.000000",
+ "modified": "2026-07-16 21:45:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Fulfillment Settings",

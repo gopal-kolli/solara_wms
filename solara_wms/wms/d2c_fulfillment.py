@@ -262,8 +262,12 @@ def _order_parcels(so, box_map, settings):
 
     if not parcels:
         parcels.append({"items": [], "kind": "single"})
-    for n in nestables:  # nestables ride in the first parcel
-        parcels[0]["items"].append(n)
+    for n in nestables:
+        # Nestables ride in the LAST parcel — warehouse convention (17-Jul,
+        # confirmed on WhatsApp): combo splits pack "AF-501 -> box 1,
+        # JUC-121 + everything else -> box 2". Labels/COD weights must match
+        # what the floor actually packs. (Single-parcel: last == only box.)
+        parcels[-1]["items"].append(n)
     return parcels
 
 

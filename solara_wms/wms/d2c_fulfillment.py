@@ -67,7 +67,11 @@ D2C_INCOME_ACCOUNT = "Sales - WTBBPL"
 # per-courier id; seed the common ones, discover + cache the rest. API key lives
 # in D2C Fulfillment Settings.clickpost_api_key (not in code).
 CLICKPOST_LABEL_API = "https://www.clickpost.in/api/v1/fetch/shippinglabel/"
-DEFAULT_CPID_SEED = {"shadowfax": 9, "delhivery": 4}
+DEFAULT_CPID_SEED = {"shadowfax": 9, "delhivery": 4, "bluedart": 5, "elasticrun": 1}
+
+# Items that belong to the whole order, not one box — they appear on EVERY
+# parcel's label (packer applies them to each box) but are charged once.
+PER_ORDER_LABEL_ITEMS = {"SOL-GIFWRAP", "SOL-INS-PERSONALISATION"}
 
 # Shopify fulfillment: push AWB + tracking to Shopify so the order shows fulfilled
 # and the customer gets tracking. The LIVE "Auto Sync AWB to Shopify" server script
@@ -262,12 +266,18 @@ def _order_parcels(so, box_map, settings):
 
     if not parcels:
         parcels.append({"items": [], "kind": "single"})
-    for n in nestables:
-        # Nestables ride in the LAST parcel — warehouse convention (17-Jul,
-        # confirmed on WhatsApp): combo splits pack "AF-501 -> box 1,
-        # JUC-121 + everything else -> box 2". Labels/COD weights must match
-        # what the floor actually packs. (Single-parcel: last == only box.)
+    per_order = [n for n in nestables if n["item_code"].upper() in PER_ORDER_LABEL_ITEMS]
+    riders = [n for n in nestables if n["item_code"].upper() not in PER_ORDER_LABEL_ITEMS]
+    for n in riders:
+        # Ride-along nestables go in the LAST parcel — warehouse convention
+        # (17-Jul): "AF-501 -> box 1, JUC-121 + everything else -> box 2".
         parcels[-1]["items"].append(n)
+    for n in per_order:
+        # Per-order items (gift wrap) must be on EVERY box's label so the packer
+        # wraps each parcel (Suresh, 17-Jul). Value is counted once — see
+        # _parcel_plan_for_dn (distinct item_code valued in its first parcel).
+        for p in parcels:
+            p["items"].append(dict(n))
     return parcels
 
 
@@ -349,10 +359,17 @@ def _parcel_plan_for_dn(so, parcels):
         return flt(val) or 1.0
 
     plan = []
+    valued = set()  # a distinct item_code contributes value only once (per-order
+    # items like gift wrap appear on every parcel's label but are charged once)
     for p in parcels:
         items = [{"item_code": i["item_code"], "qty": cint(i["qty"])}
                  for i in p.get("items", []) if i.get("item_code")]
-        value = sum(price_of(i["item_code"]) * i["qty"] for i in items)
+        value = 0.0
+        for i in items:
+            if i["item_code"] in valued:
+                continue
+            valued.add(i["item_code"])
+            value += price_of(i["item_code"]) * i["qty"]
         plan.append({"items": items, "value": round(value, 2), "kind": p.get("kind")})
     return plan
 
@@ -966,7 +983,20 @@ def push_shopify_fulfillment(dn):
 
     carrier_raw = (pairs[0][1] or dn.get("courier_partner") or "Delhivery").strip()
     carrier = SHOPIFY_CARRIER_MAP.get(carrier_raw, carrier_raw)
-    urls = ["https://www.clickpost.in/tracking/#/" + a for a in awbs]
+    # Customer tracking URL = the ClickPost-hosted branded page, per courier
+    # (Suresh, 17-Jul): solara.clickpost.ai/?cp_id=<cpid>&waybill=<awb>&security_key=<key>.
+    _s = _settings()
+    cpid_map = _cpid_map(_s)
+    trk_base = (_s.get("clickpost_tracking_base") or "https://solara.clickpost.ai/").rstrip("?")
+    trk_key = _s.get("clickpost_tracking_key") or "1d387d97-3d1d-434d-b714-f5b4df706219"
+    def _trk(awb_val, courier_val):
+        cid = cpid_map.get((courier_val or carrier_raw or "").strip().lower())
+        base = trk_base + ("" if trk_base.endswith("?") else "?")
+        u = base + "waybill=" + str(awb_val) + "&security_key=" + trk_key
+        if cid:
+            u = base + "cp_id=" + str(cid) + "&waybill=" + str(awb_val) + "&security_key=" + trk_key
+        return u
+    urls = [_trk(a, c) for a, c in pairs]
     headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
     gql = "https://" + shop_url + "/admin/api/2024-01/graphql.json"
     # Shopify takes a single number or a numbers[] list on one fulfillment.

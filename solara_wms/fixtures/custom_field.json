@@ -63,5 +63,20 @@
   "read_only": 1,
   "insert_after": "custom_box_count",
   "description": "Set when the courier minted fewer AWBs than D2C Box Count \u2014 the DN is HELD (not labelled/invoiced/dispatched) until fixed."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_parcel_plan",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_parcel_plan",
+  "label": "Parcel Plan (D2C multibox)",
+  "fieldtype": "Long Text",
+  "read_only": 1,
+  "hidden": 1,
+  "allow_on_submit": 0,
+  "insert_after": "custom_box_count",
+  "no_copy": 1,
+  "description": "JSON parcel plan written by the D2C release job for 2-parcel multibox orders; the ClickPost script executes it (one AWB per parcel, value-weighted COD)."
  }
 ]

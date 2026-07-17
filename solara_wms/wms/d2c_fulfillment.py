@@ -317,6 +317,25 @@ def _fully_covered_by_known_combos(so, box_map, settings):
     return True
 
 
+def _parcel_plan_for_dn(so, parcels):
+    """Serialisable per-parcel plan for the ClickPost script: items + rupee value
+    per parcel. Values come from the SO's own line rates (what the customer paid,
+    incl. tax) so the COD split matches the order economics; a line missing a
+    rate falls back to 1 so weights can never zero out. Only used for 2-parcel
+    releases (Phase 2a)."""
+    rate_of = {}
+    for it in so.items:
+        if it.item_code:
+            rate_of[it.item_code] = flt(it.rate) or 1.0
+    plan = []
+    for p in parcels:
+        items = [{"item_code": i["item_code"], "qty": cint(i["qty"])}
+                 for i in p.get("items", []) if i.get("item_code")]
+        value = sum(rate_of.get(i["item_code"], 1.0) * i["qty"] for i in items)
+        plan.append({"items": items, "value": round(value, 2), "kind": p.get("kind")})
+    return plan
+
+
 def _source_warehouse(settings):
     return settings.get("source_warehouse") or DEFAULT_WAREHOUSE
 
@@ -496,13 +515,26 @@ def _run_release(settings, dry_run=False):
         # box_count is also stamped on the DN below and enforced by the AWB guard
         # (a DN can never ship with fewer AWBs than boxes).
         box_count = _order_box_count(so, box_map, settings)
+        parcel_plan = None
         if box_count != 1:
-            # PHASE 1: a multi-box order releases ONLY if it is fully covered by a
-            # known-splittable combo the ClickPost script already 2-parcels
-            # correctly (gated behind release_known_combos, default OFF). All other
-            # multi-box orders stay on the manual sheet.
-            if not (cint(settings.get("release_known_combos"))
-                    and _fully_covered_by_known_combos(so, box_map, settings)):
+            # A multi-box order releases if EITHER:
+            #  (a) it is fully covered by a known-splittable combo the ClickPost
+            #      script 2-parcels natively (release_known_combos), or
+            #  (b) PHASE 2a: its parcel plan is EXACTLY 2 parcels and the
+            #      release_multibox_2p toggle is ON — the plan is stamped on the
+            #      DN and the ClickPost script executes it (one AWB per parcel,
+            #      value-weighted COD). Jumbo (box_count sentinel from the
+            #      line-count guard) never has a trustworthy plan, and 3+ parcel
+            #      orders stay on the manual sheet.
+            covered_by_combo = (cint(settings.get("release_known_combos"))
+                                and _fully_covered_by_known_combos(so, box_map, settings))
+            if not covered_by_combo and cint(settings.get("release_multibox_2p")):
+                live_lines = [it for it in so.items if cint(it.get("qty")) > 0]
+                if len(live_lines) <= _max_order_lines(settings):
+                    parcels = _order_parcels(so, box_map, settings)
+                    if len(parcels) == 2 and box_count == 2:
+                        parcel_plan = _parcel_plan_for_dn(so, parcels)
+            if not covered_by_combo and not parcel_plan:
                 res["skipped_multibox"] += 1
                 continue
 
@@ -526,7 +558,7 @@ def _run_release(settings, dry_run=False):
             res["created_dns"].append({"so": so_name, "dn": "(dry_run)"})
             continue
 
-        dn_name = _make_and_submit_dn(so_name, warehouse, res, box_count)
+        dn_name = _make_and_submit_dn(so_name, warehouse, res, box_count, parcel_plan)
         if dn_name:
             res["created"] += 1
             res["created_dns"].append({"so": so_name, "dn": dn_name})
@@ -534,7 +566,7 @@ def _run_release(settings, dry_run=False):
     return res
 
 
-def _make_and_submit_dn(so_name, warehouse, res, box_count=1):
+def _make_and_submit_dn(so_name, warehouse, res, box_count=1, parcel_plan=None):
     """One savepoint-isolated SO→DN release. Returns DN name or None."""
     from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 
@@ -558,6 +590,10 @@ def _make_and_submit_dn(so_name, warehouse, res, box_count=1):
         # ship a parcel short.
         if dn.meta.has_field("custom_box_count"):
             dn.custom_box_count = box_count
+        # Phase 2a: the executable parcel plan for the ClickPost script (2-parcel
+        # multibox). Absent for single-box and known-combo releases.
+        if parcel_plan and dn.meta.has_field("custom_parcel_plan"):
+            dn.custom_parcel_plan = json.dumps(parcel_plan)
         dn.flags.ignore_permissions = True
         dn.insert(ignore_permissions=True)
         dn.submit()  # ← triggers CP AWB + Shopify sync (SI is deferred, see flag)

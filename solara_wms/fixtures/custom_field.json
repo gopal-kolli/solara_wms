@@ -78,5 +78,19 @@
   "insert_after": "custom_box_count",
   "no_copy": 1,
   "description": "JSON parcel plan written by the D2C release job for 2-parcel multibox orders; the ClickPost script executes it (one AWB per parcel, value-weighted COD)."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_awb_list",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_awb_list",
+  "label": "AWB List (all parcels JSON)",
+  "fieldtype": "Long Text",
+  "read_only": 1,
+  "hidden": 1,
+  "no_copy": 1,
+  "insert_after": "custom_awb_2",
+  "description": "JSON [{awb,courier}] for ALL parcels of an N-box order (Phase 2b). awb_number+custom_awb_2 keep parcels 1-2 for backward compat; the guard/label-fetch/fulfillment read this for the full set."
  }
 ]

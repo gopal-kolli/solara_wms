@@ -1215,7 +1215,8 @@ def _todays_d2c_dns(settings, on_date):
         "Delivery Note",
         filters=filters,
         fields=["name", "awb_number", "courier_partner", "customer",
-                "customer_name", "shopify_order_id", "shipping_label"],
+                "customer_name", "shopify_order_id", "shopify_order_number",
+                "shipping_label"],
         limit_page_length=0,
     )
     for dn in dns:
@@ -1311,9 +1312,9 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         "missing_labels": json.dumps(result["missing_labels"]),
         "delivery_notes": [
             {"delivery_note": d["name"],
-             "shopify_order_id": d.get("shopify_order_id"),
+             "shopify_order_id": d.get("shopify_order_number") or d.get("shopify_order_id"),
              "awb_number": d.get("awb_number"),
-             "label_found": 0 if (d.get("shopify_order_id") or d["name"])
+             "label_found": 0 if (d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"])
                                  in result["missing_labels"] else 1}
             for d in dns
         ],
@@ -1507,7 +1508,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
     )
     pack_rows = "".join(
         "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td></tr>".format(
-            i + 1, esc(d.get("shopify_order_id") or d["name"]), esc(d.get("awb_number")),
+            i + 1, esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]), esc(d.get("awb_number")),
             esc(d.get("courier_partner")),
             esc(", ".join("{0}×{1:g}".format(it.item_code, flt(it.qty)) for it in d["items"])))
         for i, d in enumerate(dns)
@@ -1561,7 +1562,7 @@ def _build_combined_labels_pdf(dns, on_date, batch_no, stamp):
     for d in dns:
         content = _label_pdf_bytes(d["name"], d.get("shipping_label"))
         if not content:
-            missing.append(d.get("shopify_order_id") or d["name"])
+            missing.append(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"])
             continue
         try:
             # add_page loop is version-agnostic (works where PdfWriter.append
@@ -1571,7 +1572,7 @@ def _build_combined_labels_pdf(dns, on_date, batch_no, stamp):
         except Exception as e:
             if first_err is None:
                 first_err = "{0}: {1}".format(d["name"], str(e)[:160])
-            missing.append(d.get("shopify_order_id") or d["name"])
+            missing.append(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"])
 
     if first_err:
         _log("D2C Prepare", "label merge first error — " + first_err)

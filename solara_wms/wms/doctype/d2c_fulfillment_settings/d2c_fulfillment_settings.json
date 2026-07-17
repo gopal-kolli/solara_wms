@@ -13,6 +13,8 @@
   "label_time_budget_sec",
   "clickpost_api_key",
   "courier_cpid_map",
+  "clickpost_tracking_base",
+  "clickpost_tracking_key",
   "dry_run",
   "column_break_gates",
   "require_stock",
@@ -317,12 +319,26 @@
    "default": "2",
    "label": "Max Parcels to Auto-Release",
    "description": "Auto-release orders whose parcel plan has up to this many boxes (Phase 2b). 2 = Phase-2a only. Raise to 4-5 to auto-handle 3-4 box orders (blender+juicer+cookware etc.). Jumbo line-count guard still applies."
+  },
+  {
+   "fieldname": "clickpost_tracking_base",
+   "fieldtype": "Data",
+   "default": "https://solara.clickpost.ai/",
+   "label": "Clickpost Tracking Base",
+   "description": "Customer tracking-page base URL pushed to Shopify. Default the ClickPost-hosted branded page."
+  },
+  {
+   "fieldname": "clickpost_tracking_key",
+   "fieldtype": "Data",
+   "default": "1d387d97-3d1d-434d-b714-f5b4df706219",
+   "label": "Clickpost Tracking Key",
+   "description": "security_key for the ClickPost tracking page URL."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-17 14:00:00.000000",
+ "modified": "2026-07-17 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Fulfillment Settings",

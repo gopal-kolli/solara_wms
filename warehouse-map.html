@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOLARA Warehouse Map — 70,413 sq ft</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #e1e4ea;
+    overflow-x: hidden;
+  }
+
+  .header {
+    background: linear-gradient(135deg, #1a1d27, #252830);
+    border-bottom: 1px solid #2d3040;
+    padding: 20px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.3px;
+  }
+  .header h1 span { color: #6c8aff; }
+  .header .stats {
+    display: flex;
+    gap: 24px;
+  }
+  .header .stat {
+    text-align: center;
+  }
+  .header .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .header .stat-label {
+    font-size: 11px;
+    color: #8b90a0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .container {
+    display: flex;
+    gap: 0;
+    min-height: calc(100vh - 72px);
+  }
+
+  .sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: #161822;
+    border-right: 1px solid #2d3040;
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+  .sidebar h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #6b7080;
+    margin-bottom: 12px;
+    padding: 0 4px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 6px;
+    margin-bottom: 2px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-size: 13px;
+  }
+  .legend-item:hover {
+    background: #1e2130;
+  }
+  .legend-item.active {
+    background: #1e2130;
+    outline: 1px solid #3d4260;
+  }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .legend-label { flex: 1; }
+  .legend-count {
+    font-size: 11px;
+    color: #6b7080;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .flow-section {
+    margin-top: 20px;
+    padding: 12px;
+    background: #1a1d27;
+    border-radius: 8px;
+    border: 1px solid #2d3040;
+  }
+  .flow-section h4 {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #a0a8c0;
+  }
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #8b90a0;
+    padding: 3px 0;
+  }
+  .flow-arrow .arrow { color: #6c8aff; font-size: 14px; }
+
+  .map-area {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px;
+    overflow: auto;
+  }
+
+  .map-wrap {
+    position: relative;
+  }
+
+  svg {
+    filter: drop-shadow(0 4px 20px rgba(0,0,0,0.3));
+  }
+
+  .zone {
+    cursor: pointer;
+    transition: opacity 0.15s, filter 0.15s;
+  }
+  .zone:hover {
+    filter: brightness(1.25);
+  }
+  .zone.dimmed {
+    opacity: 0.15;
+  }
+
+  .zone-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    fill: #fff;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .zone-sublabel {
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    fill: rgba(255,255,255,0.7);
+    pointer-events: none;
+    font-size: 8px;
+  }
+
+  .shed-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    fill: #3d4260;
+    font-size: 14px;
+    letter-spacing: 3px;
+  }
+
+  .dim-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    fill: #4a5070;
+    font-size: 10px;
+  }
+
+  .dock-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    fill: #ff9f43;
+    font-size: 9px;
+  }
+
+  .tooltip {
+    position: fixed;
+    background: #1e2130;
+    border: 1px solid #3d4260;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 100;
+    max-width: 280px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+  }
+  .tooltip .tt-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    color: #a0a8c0;
+  }
+  .tooltip .tt-row span:last-child {
+    font-weight: 600;
+    color: #e1e4ea;
+  }
+  .tooltip .tt-skus {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #2d3040;
+    font-size: 12px;
+    color: #8b90a0;
+    line-height: 1.5;
+  }
+
+  .connection-bridge {
+    fill: url(#bridgeGrad);
+    stroke: #6c8aff;
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+  }
+
+  @keyframes flowPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  .flow-dot {
+    animation: flowPulse 2s infinite;
+  }
+
+  .equipment-table {
+    margin-top: 20px;
+  }
+  .equipment-table h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #6b7080;
+    margin-bottom: 8px;
+  }
+  .eq-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .eq-row:nth-child(even) { background: #1a1d27; }
+  .eq-row .eq-name { color: #a0a8c0; }
+  .eq-row .eq-val { font-weight: 600; color: #e1e4ea; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>SOLARA</span> Warehouse Layout</h1>
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">70,413</div>
+      <div class="stat-label">Total Sq Ft</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">1,004</div>
+      <div class="stat-label">Bin Locations</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">235</div>
+      <div class="stat-label">SKUs</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">5</div>
+      <div class="stat-label">Docks</div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="sidebar">
+    <h3>Zones</h3>
+    <div id="legend"></div>
+
+    <div class="flow-section">
+      <h4>Material Flow (I-Flow)</h4>
+      <div class="flow-arrow"><span class="arrow">▸</span> Inbound via Dock 1-2 (Back)</div>
+      <div class="flow-arrow"><span class="arrow">▸</span> Receiving QC &amp; Putaway</div>
+      <div class="flow-arrow"><span class="arrow">▸</span> Pallet / Heavy Shelf Storage</div>
+      <div class="flow-arrow"><span class="arrow">▸</span> Replenish to Pick Zones</div>
+      <div class="flow-arrow"><span class="arrow">▸</span> Wave Pick (Serpentine A→B→C)</div>
+      <div class="flow-arrow"><span class="arrow">▸</span> Pack &amp; QC Scan</div>
+      <div class="flow-arrow"><span class="arrow">▸</span> Dispatch via Dock 3-5 (Front)</div>
+    </div>
+
+    <div class="equipment-table">
+      <h4>Equipment Summary</h4>
+      <div class="eq-row"><span class="eq-name">Pallet Racking</span><span class="eq-val">48 bays</span></div>
+      <div class="eq-row"><span class="eq-name">Heavy Shelving</span><span class="eq-val">22 units</span></div>
+      <div class="eq-row"><span class="eq-name">Flow Racks</span><span class="eq-val">52 units</span></div>
+      <div class="eq-row"><span class="eq-name">Std Shelving</span><span class="eq-val">52 units</span></div>
+      <div class="eq-row"><span class="eq-name">Small Bin Units</span><span class="eq-val">10 units</span></div>
+      <div class="eq-row"><span class="eq-name">Kitting Tables</span><span class="eq-val">6 tables</span></div>
+      <div class="eq-row"><span class="eq-name">Pack Stations</span><span class="eq-val">12 stn</span></div>
+      <div class="eq-row"><span class="eq-name">Est. Cost</span><span class="eq-val">₹36.2L</span></div>
+    </div>
+  </div>
+
+  <div class="map-area">
+    <div class="map-wrap">
+      <svg id="warehouseMap" viewBox="0 0 680 920" width="680" height="920" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bridgeGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#6c8aff" stop-opacity="0.15"/>
+            <stop offset="50%" stop-color="#6c8aff" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="#6c8aff" stop-opacity="0.15"/>
+          </linearGradient>
+          <pattern id="gridPattern" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1a1d27" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background grid -->
+        <rect x="0" y="0" width="680" height="920" fill="url(#gridPattern)"/>
+
+        <!-- ============ BACK SHED (166x200 ft) — top ============ -->
+        <!-- Shed outline: scale ~ 3.3px/ft for width, 2.15px/ft for height -->
+        <!-- Using 550px wide, 430px tall for back shed, offset (65, 10) -->
+
+        <rect x="65" y="10" width="550" height="430" rx="4"
+              fill="none" stroke="#2d3040" stroke-width="1.5"/>
+        <text x="340" y="32" text-anchor="middle" class="shed-label">BACK SHED</text>
+        <text x="340" y="46" text-anchor="middle" class="dim-label">166 × 200 ft — 33,200 sq ft — Inbound / Storage / Kitting</text>
+
+        <!-- Dock 1 & Dock 2 -->
+        <rect x="130" y="10" width="80" height="12" rx="2" fill="#ff9f43" opacity="0.8"/>
+        <text x="170" y="9" text-anchor="middle" class="dock-label">DOCK 1</text>
+        <rect x="320" y="10" width="80" height="12" rx="2" fill="#ff9f43" opacity="0.8"/>
+        <text x="360" y="9" text-anchor="middle" class="dock-label">DOCK 2</text>
+
+        <!-- RECEIVING AREA -->
+        <rect class="zone" data-zone="receiving" x="80" y="55" width="220" height="55" rx="4" fill="#ff6b6b" opacity="0.7"/>
+        <text x="190" y="80" text-anchor="middle" class="zone-label" font-size="11">RECEIVING 1</text>
+        <text x="190" y="95" text-anchor="middle" class="zone-sublabel">QC & Putaway</text>
+
+        <rect class="zone" data-zone="receiving" x="330" y="55" width="220" height="55" rx="4" fill="#ff6b6b" opacity="0.7"/>
+        <text x="440" y="80" text-anchor="middle" class="zone-label" font-size="11">RECEIVING 2</text>
+        <text x="440" y="95" text-anchor="middle" class="zone-sublabel">QC & Putaway</text>
+
+        <!-- PALLET RACKING P1-P5 -->
+        <g class="zone" data-zone="pallet">
+          <rect x="80" y="125" width="100" height="120" rx="3" fill="#6c8aff" opacity="0.6"/>
+          <text x="130" y="175" text-anchor="middle" class="zone-label" font-size="11">P1</text>
+          <text x="130" y="190" text-anchor="middle" class="zone-sublabel">Air Fryer 12L</text>
+          <text x="130" y="202" text-anchor="middle" class="zone-sublabel">12 bays</text>
+        </g>
+        <g class="zone" data-zone="pallet">
+          <rect x="188" y="125" width="90" height="120" rx="3" fill="#6c8aff" opacity="0.6"/>
+          <text x="233" y="175" text-anchor="middle" class="zone-label" font-size="11">P2</text>
+          <text x="233" y="190" text-anchor="middle" class="zone-sublabel">AF 4.5-6.5L</text>
+        </g>
+        <g class="zone" data-zone="pallet">
+          <rect x="286" y="125" width="90" height="120" rx="3" fill="#6c8aff" opacity="0.6"/>
+          <text x="331" y="175" text-anchor="middle" class="zone-label" font-size="11">P3</text>
+          <text x="331" y="190" text-anchor="middle" class="zone-sublabel">Blender+Juicer</text>
+        </g>
+        <g class="zone" data-zone="pallet">
+          <rect x="384" y="125" width="90" height="120" rx="3" fill="#6c8aff" opacity="0.6"/>
+          <text x="429" y="175" text-anchor="middle" class="zone-label" font-size="11">P4</text>
+          <text x="429" y="190" text-anchor="middle" class="zone-sublabel">Kettle+Rice</text>
+        </g>
+        <g class="zone" data-zone="pallet">
+          <rect x="482" y="125" width="90" height="120" rx="3" fill="#6c8aff" opacity="0.6"/>
+          <text x="527" y="175" text-anchor="middle" class="zone-label" font-size="11">P5</text>
+          <text x="527" y="190" text-anchor="middle" class="zone-sublabel">Overflow</text>
+        </g>
+
+        <!-- Pallet total label -->
+        <text x="600" y="188" class="dim-label" font-size="9" fill="#6c8aff">112 pallet</text>
+        <text x="600" y="200" class="dim-label" font-size="9" fill="#6c8aff">positions</text>
+
+        <!-- HEAVY SHELVING H1-H3 -->
+        <g class="zone" data-zone="heavy">
+          <rect x="80" y="260" width="110" height="75" rx="3" fill="#a855f7" opacity="0.6"/>
+          <text x="135" y="292" text-anchor="middle" class="zone-label" font-size="11">H1</text>
+          <text x="135" y="306" text-anchor="middle" class="zone-sublabel">CI Tawa+Paniyaram</text>
+          <text x="135" y="318" text-anchor="middle" class="zone-sublabel">8 units</text>
+        </g>
+        <g class="zone" data-zone="heavy">
+          <rect x="198" y="260" width="110" height="75" rx="3" fill="#a855f7" opacity="0.6"/>
+          <text x="253" y="292" text-anchor="middle" class="zone-label" font-size="11">H2</text>
+          <text x="253" y="306" text-anchor="middle" class="zone-sublabel">CI Kadhai+FryPan</text>
+        </g>
+        <g class="zone" data-zone="heavy">
+          <rect x="316" y="260" width="100" height="75" rx="3" fill="#a855f7" opacity="0.6"/>
+          <text x="366" y="292" text-anchor="middle" class="zone-label" font-size="11">H3</text>
+          <text x="366" y="306" text-anchor="middle" class="zone-sublabel">Sterra+Granite</text>
+        </g>
+
+        <!-- OVERSTOCK RESERVE -->
+        <g class="zone" data-zone="overstock">
+          <rect x="430" y="260" width="175" height="75" rx="3" fill="#3b82f6" opacity="0.4"/>
+          <text x="518" y="292" text-anchor="middle" class="zone-label" font-size="11">OVERSTOCK</text>
+          <text x="518" y="306" text-anchor="middle" class="zone-sublabel">Reserve Pallets</text>
+          <text x="518" y="318" text-anchor="middle" class="zone-sublabel">80 positions</text>
+        </g>
+
+        <!-- KITTING AREA -->
+        <g class="zone" data-zone="kitting">
+          <rect x="80" y="350" width="220" height="70" rx="3" fill="#f59e0b" opacity="0.6"/>
+          <text x="190" y="378" text-anchor="middle" class="zone-label" font-size="11">KITTING LINE 1-2</text>
+          <text x="190" y="393" text-anchor="middle" class="zone-sublabel">Cast Iron + Ceramic Combos</text>
+          <text x="190" y="405" text-anchor="middle" class="zone-sublabel">4 work tables</text>
+        </g>
+        <g class="zone" data-zone="kitting">
+          <rect x="316" y="350" width="175" height="70" rx="3" fill="#f59e0b" opacity="0.6"/>
+          <text x="404" y="378" text-anchor="middle" class="zone-label" font-size="11">KITTING LINE 3</text>
+          <text x="404" y="393" text-anchor="middle" class="zone-sublabel">WB + Misc Combos</text>
+          <text x="404" y="405" text-anchor="middle" class="zone-sublabel">2 work tables</text>
+        </g>
+        <g class="zone" data-zone="kitting">
+          <rect x="510" y="350" width="95" height="70" rx="3" fill="#f59e0b" opacity="0.35"/>
+          <text x="558" y="385" text-anchor="middle" class="zone-label" font-size="9">KIT</text>
+          <text x="558" y="398" text-anchor="middle" class="zone-sublabel">Storage</text>
+        </g>
+
+        <!-- ============ CONNECTION BRIDGE ============ -->
+        <rect class="connection-bridge" x="200" y="440" width="280" height="40" rx="4"/>
+        <!-- Flow arrows -->
+        <polygon points="320,448 340,457 320,466" fill="#6c8aff" opacity="0.6" class="flow-dot"/>
+        <polygon points="350,448 370,457 350,466" fill="#6c8aff" opacity="0.5" class="flow-dot" style="animation-delay: 0.5s"/>
+        <polygon points="380,448 400,457 380,466" fill="#6c8aff" opacity="0.4" class="flow-dot" style="animation-delay: 1s"/>
+        <text x="340" y="470" text-anchor="middle" class="dim-label" fill="#6c8aff" font-size="9">BRIDGE ~30 ft</text>
+
+        <!-- ============ FRONT SHED (187x199 ft) — bottom ============ -->
+        <rect x="40" y="480" width="600" height="430" rx="4"
+              fill="none" stroke="#2d3040" stroke-width="1.5"/>
+        <text x="340" y="500" text-anchor="middle" class="shed-label">FRONT SHED</text>
+        <text x="340" y="514" text-anchor="middle" class="dim-label">187 × 199 ft — 37,213 sq ft — Picking / Packing / Dispatch</text>
+
+        <!-- ZONE A — Flow Racks A1-A8 -->
+        <g class="zone" data-zone="zoneA">
+          <rect x="55" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="86" y="565" text-anchor="middle" class="zone-label" font-size="10">A1</text>
+          <text x="86" y="578" text-anchor="middle" class="zone-sublabel">SS WB</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="122" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="153" y="565" text-anchor="middle" class="zone-label" font-size="10">A2</text>
+          <text x="153" y="578" text-anchor="middle" class="zone-sublabel">Oil+Elec</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="189" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="220" y="565" text-anchor="middle" class="zone-label" font-size="10">A3</text>
+          <text x="220" y="578" text-anchor="middle" class="zone-sublabel">Ins 1L</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="256" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="287" y="565" text-anchor="middle" class="zone-label" font-size="10">A4</text>
+          <text x="287" y="578" text-anchor="middle" class="zone-sublabel">Kids WB</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="323" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="354" y="565" text-anchor="middle" class="zone-label" font-size="10">A5</text>
+          <text x="354" y="578" text-anchor="middle" class="zone-sublabel">CI Pick</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="390" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="421" y="565" text-anchor="middle" class="zone-label" font-size="10">A6</text>
+          <text x="421" y="578" text-anchor="middle" class="zone-sublabel">CI Pick</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="457" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="488" y="565" text-anchor="middle" class="zone-label" font-size="10">A7</text>
+          <text x="488" y="578" text-anchor="middle" class="zone-sublabel">Ceramic</text>
+        </g>
+        <g class="zone" data-zone="zoneA">
+          <rect x="524" y="525" width="62" height="95" rx="3" fill="#22c55e" opacity="0.6"/>
+          <text x="555" y="565" text-anchor="middle" class="zone-label" font-size="10">A8</text>
+          <text x="555" y="578" text-anchor="middle" class="zone-sublabel">AF Fwd</text>
+        </g>
+        <text x="625" y="575" class="dim-label" font-size="9" fill="#22c55e">234 pick</text>
+        <text x="625" y="587" class="dim-label" font-size="9" fill="#22c55e">positions</text>
+
+        <!-- ZONE B — Shelving B1-B6 -->
+        <g class="zone" data-zone="zoneB">
+          <rect x="55" y="632" width="88" height="72" rx="3" fill="#14b8a6" opacity="0.55"/>
+          <text x="99" y="663" text-anchor="middle" class="zone-label" font-size="10">B1</text>
+          <text x="99" y="676" text-anchor="middle" class="zone-sublabel">Ins 650ml</text>
+        </g>
+        <g class="zone" data-zone="zoneB">
+          <rect x="150" y="632" width="88" height="72" rx="3" fill="#14b8a6" opacity="0.55"/>
+          <text x="194" y="663" text-anchor="middle" class="zone-label" font-size="10">B2</text>
+          <text x="194" y="676" text-anchor="middle" class="zone-sublabel">Ins 2000ml</text>
+        </g>
+        <g class="zone" data-zone="zoneB">
+          <rect x="245" y="632" width="88" height="72" rx="3" fill="#14b8a6" opacity="0.55"/>
+          <text x="289" y="663" text-anchor="middle" class="zone-label" font-size="10">B3</text>
+          <text x="289" y="676" text-anchor="middle" class="zone-sublabel">Motiv 1L</text>
+        </g>
+        <g class="zone" data-zone="zoneB">
+          <rect x="340" y="632" width="88" height="72" rx="3" fill="#14b8a6" opacity="0.55"/>
+          <text x="384" y="663" text-anchor="middle" class="zone-label" font-size="10">B4</text>
+          <text x="384" y="676" text-anchor="middle" class="zone-sublabel">Motiv 500ml</text>
+        </g>
+        <g class="zone" data-zone="zoneB">
+          <rect x="435" y="632" width="78" height="72" rx="3" fill="#14b8a6" opacity="0.55"/>
+          <text x="474" y="663" text-anchor="middle" class="zone-label" font-size="10">B5</text>
+          <text x="474" y="676" text-anchor="middle" class="zone-sublabel">Tumblers</text>
+        </g>
+        <g class="zone" data-zone="zoneB">
+          <rect x="520" y="632" width="78" height="72" rx="3" fill="#14b8a6" opacity="0.55"/>
+          <text x="559" y="663" text-anchor="middle" class="zone-label" font-size="10">B6</text>
+          <text x="559" y="676" text-anchor="middle" class="zone-sublabel">Kids+Glass</text>
+        </g>
+        <text x="625" y="670" class="dim-label" font-size="9" fill="#14b8a6">200 pick</text>
+        <text x="625" y="682" class="dim-label" font-size="9" fill="#14b8a6">positions</text>
+
+        <!-- ZONE C + SMALL BINS + RETURNS/DEFECTIVE -->
+        <g class="zone" data-zone="zoneC">
+          <rect x="55" y="716" width="120" height="60" rx="3" fill="#06b6d4" opacity="0.5"/>
+          <text x="115" y="742" text-anchor="middle" class="zone-label" font-size="10">C1-C2</text>
+          <text x="115" y="756" text-anchor="middle" class="zone-sublabel">Low Vel · 60 pos</text>
+        </g>
+        <g class="zone" data-zone="smallbin">
+          <rect x="185" y="716" width="150" height="60" rx="3" fill="#8b5cf6" opacity="0.5"/>
+          <text x="260" y="742" text-anchor="middle" class="zone-label" font-size="10">S1-S2 SMALL BINS</text>
+          <text x="260" y="756" text-anchor="middle" class="zone-sublabel">Caps, Bumpers · 120 pos</text>
+        </g>
+        <g class="zone" data-zone="returns">
+          <rect x="345" y="716" width="110" height="60" rx="3" fill="#ef4444" opacity="0.45"/>
+          <text x="400" y="742" text-anchor="middle" class="zone-label" font-size="10">RETURNS</text>
+          <text x="400" y="756" text-anchor="middle" class="zone-sublabel">30 positions</text>
+        </g>
+        <g class="zone" data-zone="defective">
+          <rect x="465" y="716" width="110" height="60" rx="3" fill="#f43f5e" opacity="0.35"/>
+          <text x="520" y="742" text-anchor="middle" class="zone-label" font-size="10">DEFECTIVE</text>
+          <text x="520" y="756" text-anchor="middle" class="zone-sublabel">20 positions</text>
+        </g>
+
+        <!-- PACK STATIONS -->
+        <g class="zone" data-zone="packing">
+          <rect x="55" y="790" width="180" height="45" rx="3" fill="#f97316" opacity="0.5"/>
+          <text x="145" y="812" text-anchor="middle" class="zone-label" font-size="10">PACK STN 1-4</text>
+          <text x="145" y="824" text-anchor="middle" class="zone-sublabel">B2C Shopify</text>
+        </g>
+        <g class="zone" data-zone="packing">
+          <rect x="245" y="790" width="180" height="45" rx="3" fill="#f97316" opacity="0.5"/>
+          <text x="335" y="812" text-anchor="middle" class="zone-label" font-size="10">PACK STN 5-8</text>
+          <text x="335" y="824" text-anchor="middle" class="zone-sublabel">B2C QC Scan</text>
+        </g>
+        <g class="zone" data-zone="packing">
+          <rect x="435" y="790" width="165" height="45" rx="3" fill="#f97316" opacity="0.5"/>
+          <text x="518" y="812" text-anchor="middle" class="zone-label" font-size="10">PACK STN 9-12</text>
+          <text x="518" y="824" text-anchor="middle" class="zone-sublabel">B2B Bulk</text>
+        </g>
+
+        <!-- DISPATCH DOCKS -->
+        <g class="zone" data-zone="dispatch">
+          <rect x="55" y="848" width="180" height="48" rx="3" fill="#10b981" opacity="0.4"/>
+          <text x="145" y="870" text-anchor="middle" class="zone-label" font-size="10">B2C DISPATCH</text>
+          <text x="145" y="884" text-anchor="middle" class="zone-sublabel">Courier Dock 3</text>
+        </g>
+        <g class="zone" data-zone="dispatch">
+          <rect x="245" y="848" width="180" height="48" rx="3" fill="#10b981" opacity="0.4"/>
+          <text x="335" y="870" text-anchor="middle" class="zone-label" font-size="10">B2B DISPATCH</text>
+          <text x="335" y="884" text-anchor="middle" class="zone-sublabel">Truck Dock 4</text>
+        </g>
+        <g class="zone" data-zone="dispatch">
+          <rect x="435" y="848" width="165" height="48" rx="3" fill="#10b981" opacity="0.4"/>
+          <text x="518" y="870" text-anchor="middle" class="zone-label" font-size="10">QC DISPATCH</text>
+          <text x="518" y="884" text-anchor="middle" class="zone-sublabel">Blinkit/Zepto Dock 5</text>
+        </g>
+
+        <!-- Dock indicators on bottom -->
+        <rect x="110" y="896" width="70" height="10" rx="2" fill="#ff9f43" opacity="0.8"/>
+        <text x="145" y="916" text-anchor="middle" class="dock-label">DOCK 3</text>
+        <rect x="305" y="896" width="70" height="10" rx="2" fill="#ff9f43" opacity="0.8"/>
+        <text x="340" y="916" text-anchor="middle" class="dock-label">DOCK 4</text>
+        <rect x="490" y="896" width="70" height="10" rx="2" fill="#ff9f43" opacity="0.8"/>
+        <text x="525" y="916" text-anchor="middle" class="dock-label">DOCK 5</text>
+
+        <!-- Dimension labels -->
+        <text x="28" y="230" class="dim-label" transform="rotate(-90 28 230)" text-anchor="middle">200 ft</text>
+        <text x="13" y="700" class="dim-label" transform="rotate(-90 13 700)" text-anchor="middle">199 ft</text>
+        <text x="340" y="445" text-anchor="middle" class="dim-label">166 ft</text>
+        <text x="340" y="908" text-anchor="middle" class="dim-label" fill="#2d3040">187 ft</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const ZONES = {
+  receiving: {
+    name: "Receiving",
+    color: "#ff6b6b",
+    bins: 10,
+    type: "Receiving",
+    sqft: "3,320",
+    detail: "2 receiving areas with dock access. QC inspection & putaway staging.",
+    skus: "All inbound goods — ASN-driven receiving"
+  },
+  pallet: {
+    name: "Pallet Storage (P1-P5)",
+    color: "#6c8aff",
+    bins: 112,
+    type: "Stocking",
+    sqft: "7,000",
+    detail: "Selective pallet racking, 4 levels, 12ft aisles. 48 bays total. Reach truck access.",
+    skus: "30 Appliance SKUs — Air Fryers, Blenders, Juicers, Kettles, Rice Cookers (587/day)"
+  },
+  heavy: {
+    name: "Heavy Shelving (H1-H3)",
+    color: "#a855f7",
+    bins: 88,
+    type: "Stocking",
+    sqft: "3,300",
+    detail: "Industrial shelving, 500kg/shelf, 4 levels. 22 units.",
+    skus: "27 Cast Iron + Metal SKUs — Tawa, Kadhai, Paniyaram, Fry Pans, Sterra, Granite (545/day)"
+  },
+  overstock: {
+    name: "Overstock Reserve",
+    color: "#3b82f6",
+    bins: 80,
+    type: "Stocking",
+    sqft: "4,980",
+    detail: "Reserve pallet positions for overflow and bulk receipts. Replenishes pick zones.",
+    skus: "Overflow from all categories — replenishment source"
+  },
+  kitting: {
+    name: "Kitting Area",
+    color: "#f59e0b",
+    bins: 18,
+    type: "Staging",
+    sqft: "3,320",
+    detail: "3 kitting lines, 6 work tables. ~56 kits/day. CI+Ceramic combos, WB packs.",
+    skus: "16 Combo SKUs — CI Combos (7), Ceramic Sets (4), Sterra (2), WB Packs (3)"
+  },
+  zoneA: {
+    name: "Zone A — High Velocity",
+    color: "#22c55e",
+    bins: 234,
+    type: "Picking",
+    sqft: "6,545",
+    detail: "Gravity flow racks, FIFO. 52 units across 8 aisles. Serpentine pick route. SKUs ≥15/day.",
+    skus: "SS WB, Oil Sprayer, Electric Lighter, Insulated 1L, Kids WB, CI Forward Pick, Ceramic, Air Fryer Forward Pick"
+  },
+  zoneB: {
+    name: "Zone B — Medium Velocity",
+    color: "#14b8a6",
+    bins: 200,
+    type: "Picking",
+    sqft: "5,236",
+    detail: "Standard shelving, 5 levels. 40 units across 6 aisles. SKUs 3-15/day.",
+    skus: "Ins 650ml, 2000ml, Motivational 1L/500ml, Tumblers/Mugs, Kids WB, Glass, Protein Shakers"
+  },
+  zoneC: {
+    name: "Zone C — Low Velocity",
+    color: "#06b6d4",
+    bins: 60,
+    type: "Picking",
+    sqft: "1,870",
+    detail: "Standard shelving, 2 aisles. SKUs <3/day.",
+    skus: "Remaining drinkware variants, Gallon bottles, Sterra, Granite, slow movers"
+  },
+  smallbin: {
+    name: "Small Bins (S1-S2)",
+    color: "#8b5cf6",
+    bins: 120,
+    type: "Picking",
+    sqft: "1,870",
+    detail: "Bin shelving with dividers, 6 levels, 10 units. Small parts & accessories.",
+    skus: "Chug Caps (12), Bumpers (6), Elixir Caps (8), Straws, Kitchen Scale, Yoga Mats, Hand Gripper"
+  },
+  returns: {
+    name: "Returns",
+    color: "#ef4444",
+    bins: 30,
+    type: "Return",
+    sqft: "1,403",
+    detail: "6 shelving units. Returned goods inspection, grading, and restock queue.",
+    skus: "All returned items — inspection before restock or defective"
+  },
+  defective: {
+    name: "Defective",
+    color: "#f43f5e",
+    bins: 20,
+    type: "Defective",
+    sqft: "935",
+    detail: "4 shelving units. Quarantined items pending vendor RMA or disposal.",
+    skus: "Failed QC items, damaged goods, warranty claims"
+  },
+  packing: {
+    name: "Pack Stations",
+    color: "#f97316",
+    bins: 0,
+    type: "Packing",
+    sqft: "4,675",
+    detail: "12 pack stations. Stn 1-8: B2C Shopify (~1000/day). Stn 9-12: B2B bulk.",
+    skus: "QC scan, invoice print, packing slip, carton close"
+  },
+  dispatch: {
+    name: "Dispatch Docks (3-5)",
+    color: "#10b981",
+    bins: 12,
+    type: "Staging",
+    sqft: "5,422",
+    detail: "3 dispatch docks. Dock 3: B2C courier. Dock 4: B2B truck. Dock 5: Quick commerce (Blinkit/Zepto/Swiggy).",
+    skus: "Staged sorted by carrier and channel"
+  }
+};
+
+// Build legend
+const legend = document.getElementById("legend");
+Object.entries(ZONES).forEach(([key, z]) => {
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.dataset.zone = key;
+  item.innerHTML = `
+    <div class="legend-swatch" style="background:${z.color}"></div>
+    <span class="legend-label">${z.name.split(" —")[0].split(" (")[0]}</span>
+    <span class="legend-count">${z.bins > 0 ? z.bins + " bins" : ""}</span>
+  `;
+  item.addEventListener("mouseenter", () => highlightZone(key));
+  item.addEventListener("mouseleave", clearHighlight);
+  legend.appendChild(item);
+});
+
+// Tooltip
+const tooltip = document.getElementById("tooltip");
+document.querySelectorAll(".zone").forEach(el => {
+  el.addEventListener("mouseenter", e => {
+    const zone = el.dataset.zone;
+    const z = ZONES[zone];
+    if (!z) return;
+    tooltip.innerHTML = `
+      <h4>${z.name}</h4>
+      <div class="tt-row"><span>Zone Type</span><span>${z.type}</span></div>
+      ${z.bins > 0 ? `<div class="tt-row"><span>Bin Locations</span><span>${z.bins}</span></div>` : ""}
+      <div class="tt-row"><span>Area</span><span>${z.sqft} sq ft</span></div>
+      <div class="tt-skus">${z.detail}<br/><br/><b>SKUs:</b> ${z.skus}</div>
+    `;
+    tooltip.classList.add("show");
+  });
+  el.addEventListener("mousemove", e => {
+    tooltip.style.left = (e.clientX + 16) + "px";
+    tooltip.style.top = (e.clientY - 10) + "px";
+  });
+  el.addEventListener("mouseleave", () => {
+    tooltip.classList.remove("show");
+  });
+});
+
+function highlightZone(zoneKey) {
+  document.querySelectorAll(".zone").forEach(el => {
+    if (el.dataset.zone === zoneKey) {
+      el.classList.remove("dimmed");
+    } else {
+      el.classList.add("dimmed");
+    }
+  });
+  document.querySelectorAll(".legend-item").forEach(li => {
+    li.classList.toggle("active", li.dataset.zone === zoneKey);
+  });
+}
+
+function clearHighlight() {
+  document.querySelectorAll(".zone").forEach(el => el.classList.remove("dimmed"));
+  document.querySelectorAll(".legend-item").forEach(li => li.classList.remove("active"));
+}
+</script>
+</body>
+</html>

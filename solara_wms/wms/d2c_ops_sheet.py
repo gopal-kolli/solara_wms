@@ -223,7 +223,7 @@ def _auto_shipped_rows(days=7):
         filters={"custom_d2c_defer_si": 1, "docstatus": 1,
                  "posting_date": [">=", since]},
         fields=["name", "posting_date", "creation", "customer_name",
-                "shopify_order_id", "awb_number", "custom_awb_2",
+                "shopify_order_id", "shopify_order_number", "awb_number", "custom_awb_2",
                 "custom_box_count", "grand_total", "custom_shopify_fulfilled",
                 "per_billed", "custom_awb_shortfall"],
         order_by="creation desc",
@@ -253,7 +253,7 @@ def _auto_shipped_rows(days=7):
         else:
             status = "Label/fulfillment in progress"
         rows.append([
-            str(d.shopify_order_id or ""), so_of.get(d.name, ""), d.name,
+            str(d.get("shopify_order_number") or d.shopify_order_id or ""), so_of.get(d.name, ""), d.name,
             str(d.posting_date), str(d.creation)[11:16], d.customer_name or "",
             round(flt(d.grand_total), 2), cint(d.get("custom_box_count")) or 1,
             awbs, status,

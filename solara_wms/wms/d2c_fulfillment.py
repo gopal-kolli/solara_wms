@@ -327,11 +327,28 @@ def _parcel_plan_for_dn(so, parcels):
     for it in so.items:
         if it.item_code:
             rate_of[it.item_code] = flt(it.rate) or 1.0
+
+    def price_of(code):
+        # SO line rate when the item is an order line; combo CHILDREN are not SO
+        # lines, so fall back to Item Price (MRP -> Standard Selling) ->
+        # valuation_rate — same ladder the ClickPost script uses for weighting.
+        if code in rate_of:
+            return rate_of[code]
+        val = frappe.db.get_value("Item Price", {"item_code": code, "price_list": "MRP"},
+                                  "price_list_rate")
+        if not val:
+            val = frappe.db.get_value("Item Price",
+                                      {"item_code": code, "price_list": "Standard Selling"},
+                                      "price_list_rate")
+        if not val:
+            val = frappe.db.get_value("Item", code, "valuation_rate")
+        return flt(val) or 1.0
+
     plan = []
     for p in parcels:
         items = [{"item_code": i["item_code"], "qty": cint(i["qty"])}
                  for i in p.get("items", []) if i.get("item_code")]
-        value = sum(rate_of.get(i["item_code"], 1.0) * i["qty"] for i in items)
+        value = sum(price_of(i["item_code"]) * i["qty"] for i in items)
         plan.append({"items": items, "value": round(value, 2), "kind": p.get("kind")})
     return plan
 
@@ -528,11 +545,15 @@ def _run_release(settings, dry_run=False):
             #      orders stay on the manual sheet.
             covered_by_combo = (cint(settings.get("release_known_combos"))
                                 and _fully_covered_by_known_combos(so, box_map, settings))
-            if not covered_by_combo and cint(settings.get("release_multibox_2p")):
+            if covered_by_combo or cint(settings.get("release_multibox_2p")):
                 live_lines = [it for it in so.items if cint(it.get("qty")) > 0]
                 if len(live_lines) <= _max_order_lines(settings):
                     parcels = _order_parcels(so, box_map, settings)
                     if len(parcels) == 2 and box_count == 2:
+                        # Stamped for BOTH paths: the ClickPost script prefers the
+                        # plan, so labels list the parcel's FULL contents (a combo's
+                        # ride-along bottle/basket was previously on no label —
+                        # missed-item risk at the pack station, found 2026-07-17).
                         parcel_plan = _parcel_plan_for_dn(so, parcels)
             if not covered_by_combo and not parcel_plan:
                 res["skipped_multibox"] += 1

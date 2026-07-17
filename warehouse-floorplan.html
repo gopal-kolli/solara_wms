@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOLARA Warehouse — Physical Floor Plan v2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f5f6f8;
+    color: #222;
+  }
+  .toolbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: #1a1d27; color: #fff; padding: 10px 24px;
+    display: flex; align-items: center; gap: 16px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .toolbar h1 { font-size: 15px; font-weight: 700; }
+  .toolbar h1 span { color: #6c8aff; }
+  .toolbar .info { color: #a0a8c0; font-size: 11px; }
+  .toolbar .btns { margin-left: auto; display: flex; gap: 6px; }
+  .toolbar button {
+    background: #2d3040; color: #e1e4ea; border: 1px solid #3d4260;
+    padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+  }
+  .toolbar button:hover { background: #3d4260; }
+
+  .wrap {
+    margin-top: 44px; overflow: auto; width: 100vw; height: calc(100vh - 44px);
+    display: flex; justify-content: center; padding: 20px;
+  }
+
+  /* Tooltip */
+  .tip {
+    position: fixed; background: #1e2130; color: #e1e4ea;
+    border: 1px solid #3d4260; border-radius: 6px; padding: 10px 14px;
+    font-size: 11px; pointer-events: none; opacity: 0;
+    transition: opacity 0.1s; z-index: 200; max-width: 260px; line-height: 1.5;
+  }
+  .tip.show { opacity: 1; }
+  .tip b { color: #fff; font-size: 12px; display: block; margin-bottom: 3px; }
+
+  .hoverable { cursor: pointer; }
+  .hoverable:hover { filter: brightness(1.15); }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1><span>SOLARA</span> Warehouse Floor Plan</h1>
+  <span class="info">Scale ≈ 3 px/ft · 1 grid = 10 ft</span>
+  <span class="info">|</span>
+  <span class="info">Bobcat aisle: 12-14 ft</span>
+  <div class="btns">
+    <button onclick="z(1.25)">Zoom +</button>
+    <button onclick="z(0.8)">Zoom −</button>
+    <button onclick="document.getElementById('svg').style.transform='scale(1)'">Reset</button>
+  </div>
+</div>
+
+<div class="wrap">
+<svg id="svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1520" width="1200" height="1520" style="transition: transform 0.2s;">
+<defs>
+  <pattern id="g10" width="30" height="30" patternUnits="userSpaceOnUse">
+    <path d="M30 0L0 0 0 30" fill="none" stroke="#dfe3e8" stroke-width="0.4"/>
+  </pattern>
+  <pattern id="g50" width="150" height="150" patternUnits="userSpaceOnUse">
+    <path d="M150 0L0 0 0 150" fill="none" stroke="#c4cad2" stroke-width="0.6"/>
+  </pattern>
+  <marker id="ah" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+    <polygon points="0 0,6 2,0 4" fill="#888"/>
+  </marker>
+</defs>
+
+<rect width="1200" height="1520" fill="#f5f6f8"/>
+<rect x="30" y="30" width="1140" height="1460" fill="url(#g10)"/>
+<rect x="30" y="30" width="1140" height="1460" fill="url(#g50)"/>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--          BACK SHED  166 × 200 ft                   -->
+<!--     Scale: 3 px/ft → 498 W × 600 H                -->
+<!--     Origin: (80, 50)                               -->
+<!--     DOCKS ON RIGHT (EAST) SIDE WALL                -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="80" y="50" width="498" height="600" fill="#fff" stroke="#333" stroke-width="2.5" rx="2"/>
+
+<!-- Title -->
+<text x="280" y="42" text-anchor="middle" font-size="15" font-weight="800" fill="#333" letter-spacing="2">BACK SHED</text>
+<text x="280" y="662" text-anchor="middle" font-size="9" fill="#888">166 ft × 200 ft = 33,200 sq ft — Inbound / Storage / Kitting</text>
+
+<!-- Dimension labels -->
+<line x1="80" y1="36" x2="578" y2="36" stroke="#999" stroke-width="0.6"/>
+<text x="329" y="32" text-anchor="middle" font-size="8" fill="#777">166 ft</text>
+<line x1="68" y1="50" x2="68" y2="650" stroke="#999" stroke-width="0.6"/>
+<text x="60" y="350" text-anchor="middle" font-size="8" fill="#777" transform="rotate(-90,60,350)">200 ft</text>
+
+<!-- ═══ RIGHT (EAST) WALL — DOCK DOORS ═══ -->
+<!-- 3 dock doors spaced along the 200ft right wall -->
+<rect x="574" y="105" width="8" height="42" fill="#ff9f43" rx="2"
+      class="hoverable" data-tip="Dock 1 (Inbound)|14 ft wide roll-up door|Truck/container receiving"/>
+<text x="598" y="128" font-size="7" font-weight="700" fill="#d97706">DOCK 1</text>
+
+<rect x="574" y="265" width="8" height="42" fill="#ff9f43" rx="2"
+      class="hoverable" data-tip="Dock 2 (Inbound)|14 ft wide roll-up door|Truck/container receiving"/>
+<text x="598" y="288" font-size="7" font-weight="700" fill="#d97706">DOCK 2</text>
+
+<rect x="574" y="410" width="8" height="42" fill="#ff9f43" rx="2"
+      class="hoverable" data-tip="Dock 3 (Inbound)|14 ft wide roll-up door|Raw material / components"/>
+<text x="598" y="433" font-size="7" font-weight="700" fill="#d97706">DOCK 3</text>
+
+<!-- ═══ RECEIVING STAGING AREA — right side strip ═══ -->
+<!-- 20ft wide × 180ft long (60px × 540px) along right wall -->
+<rect x="518" y="58" width="54" height="540" fill="#ff6b6b" fill-opacity="0.08" stroke="#ef4444" stroke-width="0.8" stroke-dasharray="4 2" rx="2"
+      class="hoverable" data-tip="Receiving Staging Area|20 ft wide × 180 ft long strip|Floor staging for inbound pallets|QC inspection, ASN check, putaway queue|Bobcat unloads from docks → stages here"/>
+<text x="545" y="160" text-anchor="middle" font-size="7" font-weight="700" fill="#dc2626" transform="rotate(-90,545,250)">RECEIVING STAGING — 20 ft × 180 ft</text>
+<!-- Pallet outlines in receiving -->
+<rect x="524" y="68" width="18" height="14" fill="none" stroke="#f87171" stroke-width="0.5" rx="1"/>
+<rect x="548" y="68" width="18" height="14" fill="none" stroke="#f87171" stroke-width="0.5" rx="1"/>
+<rect x="524" y="88" width="18" height="14" fill="none" stroke="#f87171" stroke-width="0.5" rx="1"/>
+<rect x="548" y="88" width="18" height="14" fill="none" stroke="#f87171" stroke-width="0.5" rx="1"/>
+<rect x="524" y="108" width="18" height="14" fill="none" stroke="#f87171" stroke-width="0.5" rx="1"/>
+<rect x="548" y="108" width="18" height="14" fill="none" stroke="#f87171" stroke-width="0.5" rx="1"/>
+
+<!-- ═══ MAIN N-S TRAVEL AISLE — 14 ft (42px) ═══ -->
+<rect x="476" y="58" width="42" height="540" fill="#6c8aff" fill-opacity="0.06" stroke="#6c8aff" stroke-width="0.6" stroke-dasharray="6 3"/>
+<text x="497" y="85" text-anchor="middle" font-size="6" font-weight="600" fill="#6c8aff" transform="rotate(-90,497,250)">MAIN AISLE — 14 ft (bobcat two-way)</text>
+<!-- Flow arrows in main aisle -->
+<polygon points="492,140 497,130 502,140" fill="#6c8aff" opacity="0.4"/>
+<polygon points="492,220 497,210 502,220" fill="#6c8aff" opacity="0.4"/>
+<polygon points="492,300 497,290 502,300" fill="#6c8aff" opacity="0.4"/>
+<polygon points="492,380 497,370 502,380" fill="#6c8aff" opacity="0.4"/>
+<polygon points="492,460 497,450 502,460" fill="#6c8aff" opacity="0.4"/>
+
+<!-- 20ft dimension for receiving -->
+<line x1="518" y1="603" x2="572" y2="603" stroke="#dc2626" stroke-width="0.5"/>
+<text x="545" y="612" text-anchor="middle" font-size="6" fill="#dc2626">20 ft</text>
+<!-- 14ft dimension for main aisle -->
+<line x1="476" y1="603" x2="518" y2="603" stroke="#6c8aff" stroke-width="0.5"/>
+<text x="497" y="612" text-anchor="middle" font-size="6" fill="#6c8aff">14 ft</text>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--     PALLET RACKING — P1 through P5                 -->
+<!--     Racks run EAST-WEST (horizontal) so bobcat     -->
+<!--     turns from main aisle into 12ft E-W aisles     -->
+<!--     Occupying top 85 ft of left 130 ft storage     -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<!-- Storage area: x=88 to x=468 (380px = ~127ft), y=58 to y=310 (252px = ~84ft) -->
+<rect x="88" y="55" width="383" height="260" fill="none" stroke="#4466bb" stroke-width="0.5" stroke-dasharray="3 2" rx="3"/>
+<text x="92" y="67" font-size="7" font-weight="700" fill="#4466bb">PALLET RACKING — 5 aisles · 112 positions · 20ft H · Selective racking</text>
+
+<!-- P1 — Top rack row (single row at top wall) -->
+<!-- Rack: 4ft deep (12px), runs ~120ft east-west (360px) -->
+<rect x="95" y="74" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P1 — North Rack Row|Air Fryer 12L (SOL-AF-501) — 243/day|6 bays × 4 levels = 24 pallet positions|Bay: 8ft W × 4ft D × 20ft H|Against north wall"/>
+<text x="280" y="82" text-anchor="middle" font-size="6" font-weight="600" fill="#fff">P1 — AIR FRYER 12L · 6 bays · 24 pos</text>
+
+<!-- 12ft aisle (36px) -->
+<text x="280" y="99" text-anchor="middle" font-size="6" fill="#6c8aff">↕ 12 ft aisle (bobcat) ↕</text>
+
+<!-- P2 — Back-to-back rack pair -->
+<rect x="95" y="106" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P2 — South-facing rack|Air Fryer 4.5-6.5L models|6 bays × 4 levels = 24 positions"/>
+<rect x="95" y="119" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P2b — North-facing rack (back-to-back)|Blender storage (SOL-BLN series)|6 bays × 4 levels = 24 positions"/>
+<text x="280" y="115" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P2 — AF 4.5-6.5L · 24 pos</text>
+<text x="280" y="128" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P2b — BLENDER · 24 pos (back-to-back)</text>
+
+<!-- 12ft aisle -->
+<text x="280" y="144" text-anchor="middle" font-size="6" fill="#6c8aff">↕ 12 ft aisle (bobcat) ↕</text>
+
+<!-- P3 — Back-to-back rack pair -->
+<rect x="95" y="152" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P3 — South-facing|Juicers + Kettles|5 bays × 4 levels = 20 positions"/>
+<rect x="95" y="165" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P3b — North-facing (back-to-back)|Kettles continued + Rice Cookers|5 bays × 4 levels = 20 positions"/>
+<text x="280" y="161" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P3 — JUICER+KETTLE · 20 pos</text>
+<text x="280" y="173" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P3b — KETTLE+RICE COOKER · 20 pos (back-to-back)</text>
+
+<!-- 12ft aisle -->
+<text x="280" y="190" text-anchor="middle" font-size="6" fill="#6c8aff">↕ 12 ft aisle (bobcat) ↕</text>
+
+<!-- P4 — Back-to-back rack pair -->
+<rect x="95" y="198" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P4 — South-facing|Sandwich/Grill + Overflow|5 bays × 4 levels = 20 positions"/>
+<rect x="95" y="211" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P4b — North-facing (back-to-back)|Overflow / seasonal stock|5 bays × 4 levels = 20 positions"/>
+<text x="280" y="207" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P4 — SANDWICH+GRILL · 20 pos</text>
+<text x="280" y="220" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P4b — OVERFLOW · 20 pos (back-to-back)</text>
+
+<!-- 12ft aisle -->
+<text x="280" y="236" text-anchor="middle" font-size="6" fill="#6c8aff">↕ 12 ft aisle (bobcat) ↕</text>
+
+<!-- P5 — Bottom rack row (single) -->
+<rect x="95" y="244" width="370" height="11" fill="#6c8aff" fill-opacity="0.3" stroke="#4466bb" stroke-width="0.7"
+      class="hoverable" data-tip="P5 — South rack row|Overflow reserve stock|4 bays × 4 levels = 16 positions"/>
+<text x="280" y="252" text-anchor="middle" font-size="5.5" font-weight="600" fill="#fff">P5 — OVERFLOW RESERVE · 16 pos</text>
+
+<!-- Cross aisle between pallet and heavy shelving -->
+<line x1="88" y1="268" x2="470" y2="268" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 2"/>
+<text x="280" y="280" text-anchor="middle" font-size="6" fill="#999">— 12 ft cross-aisle (bobcat turn lane) —</text>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--     OVERSTOCK RESERVE — right-center area          -->
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- Below pallet zone, right of heavy shelf, left of main aisle -->
+<rect x="310" y="288" width="158" height="120" fill="#3b82f6" fill-opacity="0.06" stroke="#3b82f6" stroke-width="0.8" rx="2"
+      class="hoverable" data-tip="Overstock Reserve|Floor-stacked pallets, 2-3 high|80 pallet positions|Replenishes pick zones in front shed|Bobcat access from main aisle"/>
+<text x="389" y="335" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">OVERSTOCK</text>
+<text x="389" y="349" text-anchor="middle" font-size="9" fill="#2563eb">RESERVE</text>
+<text x="389" y="365" text-anchor="middle" font-size="7" fill="#999">80 pallet positions</text>
+<text x="389" y="377" text-anchor="middle" font-size="7" fill="#999">Floor-stacked · Bobcat access</text>
+<!-- Pallet icons -->
+<rect x="320" y="296" width="20" height="15" fill="none" stroke="#93b4f5" stroke-width="0.5" rx="1"/>
+<rect x="345" y="296" width="20" height="15" fill="none" stroke="#93b4f5" stroke-width="0.5" rx="1"/>
+<rect x="370" y="296" width="20" height="15" fill="none" stroke="#93b4f5" stroke-width="0.5" rx="1"/>
+<rect x="395" y="296" width="20" height="15" fill="none" stroke="#93b4f5" stroke-width="0.5" rx="1"/>
+<rect x="420" y="296" width="20" height="15" fill="none" stroke="#93b4f5" stroke-width="0.5" rx="1"/>
+<rect x="445" y="296" width="20" height="15" fill="none" stroke="#93b4f5" stroke-width="0.5" rx="1"/>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--     HEAVY DUTY SHELVING — H1, H2, H3              -->
+<!--     Left portion, below pallet racking             -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="88" y="288" width="212" height="120" fill="none" stroke="#7c3aed" stroke-width="0.5" stroke-dasharray="3 2" rx="3"/>
+<text x="92" y="298" font-size="7" font-weight="700" fill="#7c3aed">HEAVY SHELF — 22 units · 88 pos · 7ft H · 500 kg/shelf</text>
+
+<!-- H1 - Cast Iron Tawa + Paniyaram (highest velocity) -->
+<rect x="95" y="306" width="8" height="90" fill="#a855f7" fill-opacity="0.4" stroke="#7c3aed" stroke-width="0.7"
+      class="hoverable" data-tip="H1 West — Cast Iron Tawa|SOL-CI-DT-101: 156/day|+ Paniyaram SOL-CI-PNY-101: 86/day|8 units × 4 shelves = 32 positions|500 kg/shelf · 4ft W × 2.5ft D × 7ft H"/>
+<rect x="107" y="306" width="8" height="90" fill="#a855f7" fill-opacity="0.4" stroke="#7c3aed" stroke-width="0.7"
+      class="hoverable" data-tip="H1 East — Tawa + Paniyaram"/>
+<text x="105" y="404" text-anchor="middle" font-size="6" font-weight="600" fill="#7c3aed">H1</text>
+<text x="105" y="303" text-anchor="middle" font-size="5" fill="#7c3aed">10ft aisle</text>
+
+<!-- H2 -->
+<rect x="150" y="306" width="8" height="90" fill="#a855f7" fill-opacity="0.4" stroke="#7c3aed" stroke-width="0.7"
+      class="hoverable" data-tip="H2 — Cast Iron Kadhai + Fry Pan|CI Kadhai: 55/day, Fry Pan: 48/day|8 units × 4 shelves = 32 positions"/>
+<rect x="162" y="306" width="8" height="90" fill="#a855f7" fill-opacity="0.4" stroke="#7c3aed" stroke-width="0.7"/>
+<text x="160" y="404" text-anchor="middle" font-size="6" font-weight="600" fill="#7c3aed">H2</text>
+
+<!-- H3 -->
+<rect x="205" y="306" width="8" height="75" fill="#a855f7" fill-opacity="0.4" stroke="#7c3aed" stroke-width="0.7"
+      class="hoverable" data-tip="H3 — Sterra SS + Granite Cookware|Sterra: 29/day, Granite: 4/day|6 units × 4 shelves = 24 positions"/>
+<rect x="217" y="306" width="8" height="75" fill="#a855f7" fill-opacity="0.4" stroke="#7c3aed" stroke-width="0.7"/>
+<text x="215" y="389" text-anchor="middle" font-size="6" font-weight="600" fill="#7c3aed">H3</text>
+
+<text x="250" y="360" font-size="6" fill="#7c3aed">10 ft aisles</text>
+<text x="250" y="370" font-size="6" fill="#7c3aed">(bobcat/cart)</text>
+
+
+<!-- ═══ CROSS AISLE ═══ -->
+<line x1="88" y1="416" x2="470" y2="416" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 2"/>
+<text x="280" y="428" text-anchor="middle" font-size="6" fill="#999">— 10 ft cross-aisle —</text>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--     KITTING AREA — 3 assembly lines                -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="88" y="436" width="383" height="90" fill="#f59e0b" fill-opacity="0.06" stroke="#f59e0b" stroke-width="0.8" rx="2"/>
+<text x="92" y="448" font-size="7" font-weight="700" fill="#d97706">KITTING AREA — 3 lines · 6 tables · ~56 kits/day</text>
+
+<!-- Line 1 -->
+<rect x="100" y="455" width="105" height="58" fill="#f59e0b" fill-opacity="0.1" stroke="#d97706" stroke-width="0.6" rx="2"
+      class="hoverable" data-tip="Kitting Line 1 — CI Combos|Cast Iron Tawa+Kadhai combos|~20 kits/day|2 tables (8ft × 4ft)"/>
+<rect x="108" y="462" width="38" height="18" fill="#f59e0b" fill-opacity="0.2" stroke="#b45309" stroke-width="0.8" rx="2"/>
+<text x="127" y="474" text-anchor="middle" font-size="5" font-weight="600" fill="#92400e">TBL 1</text>
+<rect x="155" y="462" width="38" height="18" fill="#f59e0b" fill-opacity="0.2" stroke="#b45309" stroke-width="0.8" rx="2"/>
+<text x="174" y="474" text-anchor="middle" font-size="5" font-weight="600" fill="#92400e">TBL 2</text>
+<text x="152" y="502" text-anchor="middle" font-size="6" font-weight="600" fill="#d97706">LINE 1 · CI Combos</text>
+
+<!-- Line 2 -->
+<rect x="220" y="455" width="105" height="58" fill="#f59e0b" fill-opacity="0.1" stroke="#d97706" stroke-width="0.6" rx="2"
+      class="hoverable" data-tip="Kitting Line 2 — Ceramic Sets|Belmont cookware sets|~15 kits/day|2 tables (8ft × 4ft)"/>
+<rect x="228" y="462" width="38" height="18" fill="#f59e0b" fill-opacity="0.2" stroke="#b45309" stroke-width="0.8" rx="2"/>
+<text x="247" y="474" text-anchor="middle" font-size="5" font-weight="600" fill="#92400e">TBL 3</text>
+<rect x="275" y="462" width="38" height="18" fill="#f59e0b" fill-opacity="0.2" stroke="#b45309" stroke-width="0.8" rx="2"/>
+<text x="294" y="474" text-anchor="middle" font-size="5" font-weight="600" fill="#92400e">TBL 4</text>
+<text x="272" y="502" text-anchor="middle" font-size="6" font-weight="600" fill="#d97706">LINE 2 · Ceramic</text>
+
+<!-- Line 3 -->
+<rect x="340" y="455" width="120" height="58" fill="#f59e0b" fill-opacity="0.1" stroke="#d97706" stroke-width="0.6" rx="2"
+      class="hoverable" data-tip="Kitting Line 3 — WB + Misc|WB packs of 3, Sterra combos|~21 kits/day|2 tables"/>
+<rect x="350" y="462" width="38" height="18" fill="#f59e0b" fill-opacity="0.2" stroke="#b45309" stroke-width="0.8" rx="2"/>
+<text x="369" y="474" text-anchor="middle" font-size="5" font-weight="600" fill="#92400e">TBL 5</text>
+<rect x="398" y="462" width="38" height="18" fill="#f59e0b" fill-opacity="0.2" stroke="#b45309" stroke-width="0.8" rx="2"/>
+<text x="417" y="474" text-anchor="middle" font-size="5" font-weight="600" fill="#92400e">TBL 6</text>
+<text x="400" y="502" text-anchor="middle" font-size="6" font-weight="600" fill="#d97706">LINE 3 · WB+Misc</text>
+
+<!-- ═══ STAGING / BRIDGE AREA ═══ -->
+<rect x="88" y="535" width="383" height="55" fill="#6c8aff" fill-opacity="0.05" stroke="#6c8aff" stroke-width="0.8" stroke-dasharray="5 3" rx="2"/>
+<text x="280" y="558" text-anchor="middle" font-size="9" font-weight="700" fill="#6c8aff">STAGING → BRIDGE TO FRONT SHED</text>
+<text x="280" y="572" text-anchor="middle" font-size="7" fill="#6c8aff">14 ft wide path · Bobcat transfers pallets to front shed</text>
+<!-- Flow arrows -->
+<polygon points="230,548 240,553 230,558" fill="#6c8aff" opacity="0.4"/>
+<polygon points="270,548 280,553 270,558" fill="#6c8aff" opacity="0.4"/>
+<polygon points="310,548 320,553 310,558" fill="#6c8aff" opacity="0.4"/>
+
+
+<!-- BOBCAT ICON in main aisle -->
+<rect x="484" y="175" width="24" height="14" fill="#fbbf24" fill-opacity="0.3" stroke="#d97706" stroke-width="1" rx="3"/>
+<text x="496" y="185" text-anchor="middle" font-size="5" font-weight="700" fill="#92400e">🚜</text>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--          FRONT SHED  187 × 199 ft                  -->
+<!--     Scale: 3px/ft → 561 W × 597 H                 -->
+<!--     Origin: (50, 690)                              -->
+<!--     DOCKS ON SOUTH (BOTTOM) WALL — as confirmed    -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="50" y="690" width="561" height="597" fill="#fff" stroke="#333" stroke-width="2.5" rx="2"/>
+
+<text x="330" y="685" text-anchor="middle" font-size="15" font-weight="800" fill="#333" letter-spacing="2">FRONT SHED</text>
+<text x="330" y="1298" text-anchor="middle" font-size="9" fill="#888">187 ft × 199 ft = 37,213 sq ft — Picking / Packing / Dispatch</text>
+
+<!-- Dimensions -->
+<line x1="50" y1="1302" x2="611" y2="1302" stroke="#999" stroke-width="0.6"/>
+<text x="330" y="1313" text-anchor="middle" font-size="8" fill="#777">187 ft</text>
+<line x1="38" y1="690" x2="38" y2="1287" stroke="#999" stroke-width="0.6"/>
+<text x="30" y="990" text-anchor="middle" font-size="8" fill="#777" transform="rotate(-90,30,990)">199 ft</text>
+
+<!-- Connection from back shed bridge -->
+<rect x="220" y="670" width="220" height="25" fill="#6c8aff" fill-opacity="0.08" stroke="#6c8aff" stroke-width="0.8" stroke-dasharray="5 3" rx="2"/>
+<text x="330" y="686" text-anchor="middle" font-size="7" fill="#6c8aff">← BRIDGE ~30 ft →</text>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--     ZONE A — HIGH VELOCITY PICK (Flow Racks)       -->
+<!--     8 aisles, running N-S, E-W aisles between      -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="58" y="700" width="545" height="150" fill="none" stroke="#16a34a" stroke-width="0.5" stroke-dasharray="3 2" rx="3"/>
+<text x="66" y="712" font-size="7" font-weight="700" fill="#16a34a">ZONE A — HIGH VELOCITY · Flow Racks · 234 pos · 52 units · SKUs ≥15/day · 5ft aisles</text>
+
+<!-- A1-A8: Rack pairs running N-S, with labels -->
+<!-- Each flow rack: 4ft W × 4ft D × 7ft H, 4-5 levels -->
+<!-- Using ~12px per rack, ~15px per aisle -->
+
+<g class="hoverable" data-tip="A1 — SS Water Bottles|SOL-SS-WB series · 205/day|7 flow rack units|Gravity FIFO, 2-3 cartons deep">
+  <rect x="68" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="88" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="83" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A1</text>
+  <text x="83" y="854" text-anchor="middle" font-size="5" fill="#555">SS WB</text>
+</g>
+
+<g class="hoverable" data-tip="A2 — Oil Sprayer + Electric Lighter + Thermometer|~276/day combined · high rotation">
+  <rect x="120" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="140" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="135" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A2</text>
+  <text x="135" y="854" text-anchor="middle" font-size="5" fill="#555">Oil+Elec</text>
+</g>
+
+<g class="hoverable" data-tip="A3 — Insulated WB 1000ml|Top movers · 155/day|FIFO flow racks">
+  <rect x="172" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="192" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="187" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A3</text>
+  <text x="187" y="854" text-anchor="middle" font-size="5" fill="#555">Ins 1L</text>
+</g>
+
+<g class="hoverable" data-tip="A4 — Kids Insulated WB Galaxy|129/day velocity">
+  <rect x="224" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="244" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="239" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A4</text>
+  <text x="239" y="854" text-anchor="middle" font-size="5" fill="#555">Kids WB</text>
+</g>
+
+<g class="hoverable" data-tip="A5 — Cast Iron Forward Pick: Tawa|Replenished daily from H1 in back shed|156/day">
+  <rect x="276" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="296" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="291" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A5</text>
+  <text x="291" y="854" text-anchor="middle" font-size="5" fill="#555">CI Tawa</text>
+</g>
+
+<g class="hoverable" data-tip="A6 — CI Paniyaram + Kadhai forward pick|~180/day combined">
+  <rect x="328" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="348" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="343" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A6</text>
+  <text x="343" y="854" text-anchor="middle" font-size="5" fill="#555">CI Pny</text>
+</g>
+
+<g class="hoverable" data-tip="A7 — Ceramic Belmont Fry Pan + Tawa|178/day combined">
+  <rect x="380" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="400" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="395" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A7</text>
+  <text x="395" y="854" text-anchor="middle" font-size="5" fill="#555">Ceramic</text>
+</g>
+
+<g class="hoverable" data-tip="A8 — Air Fryer + Blender forward pick|~350/day · replenished from pallet zone P1-P3 via bobcat">
+  <rect x="432" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <rect x="452" y="720" width="10" height="120" fill="#22c55e" fill-opacity="0.35" stroke="#16a34a" stroke-width="0.7"/>
+  <text x="447" y="845" text-anchor="middle" font-size="6" font-weight="700" fill="#16a34a">A8</text>
+  <text x="447" y="854" text-anchor="middle" font-size="5" fill="#555">AF Fwd</text>
+</g>
+
+<text x="510" y="775" font-size="6" fill="#16a34a">5 ft aisles</text>
+<text x="510" y="785" font-size="6" fill="#16a34a">4ft W×4ft D</text>
+<text x="510" y="795" font-size="6" fill="#16a34a">7ft H, FIFO</text>
+
+<!-- serpentine pick route indicator -->
+<path d="M78,730 L78,835 L98,835 L98,730 L130,730 L130,835 L150,835 L150,730" fill="none" stroke="#86efac" stroke-width="0.8" stroke-dasharray="3 2"/>
+<text x="64" y="730" font-size="5" fill="#86efac">pick</text>
+<text x="64" y="738" font-size="5" fill="#86efac">route</text>
+
+
+<!-- ═══ CROSS AISLE ═══ -->
+<line x1="58" y1="860" x2="600" y2="860" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 2"/>
+<text x="330" y="870" text-anchor="middle" font-size="6" fill="#999">— 8 ft cross-aisle (serpentine turn) —</text>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--     ZONE B — MEDIUM VELOCITY (Std Shelving)        -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="58" y="878" width="545" height="110" fill="none" stroke="#0d9488" stroke-width="0.5" stroke-dasharray="3 2" rx="3"/>
+<text x="66" y="890" font-size="7" font-weight="700" fill="#0d9488">ZONE B — MEDIUM VELOCITY · Std Shelving · 200 pos · 40 units · 3-15/day · 6ft aisles</text>
+
+<g class="hoverable" data-tip="B1 — Insulated WB 650ml|15 SKUs · 103/day combined|7 shelf units">
+  <rect x="68" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <rect x="86" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <text x="81" y="985" text-anchor="middle" font-size="6" font-weight="600" fill="#0d9488">B1</text>
+</g>
+<g class="hoverable" data-tip="B2 — Insulated WB 2000ml + Gallon|~107/day">
+  <rect x="118" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <rect x="136" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <text x="131" y="985" text-anchor="middle" font-size="6" font-weight="600" fill="#0d9488">B2</text>
+</g>
+<g class="hoverable" data-tip="B3 — Motivational WB 1L|18 SKUs · 125/day">
+  <rect x="168" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <rect x="186" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <text x="181" y="985" text-anchor="middle" font-size="6" font-weight="600" fill="#0d9488">B3</text>
+</g>
+<g class="hoverable" data-tip="B4 — Motivational WB 500ml+2L|~63/day">
+  <rect x="218" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <rect x="236" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <text x="231" y="985" text-anchor="middle" font-size="6" font-weight="600" fill="#0d9488">B4</text>
+</g>
+<g class="hoverable" data-tip="B5 — Tumblers + Mugs|15 SKUs · 83/day">
+  <rect x="268" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <rect x="286" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <text x="281" y="985" text-anchor="middle" font-size="6" font-weight="600" fill="#0d9488">B5</text>
+</g>
+<g class="hoverable" data-tip="B6 — Kids WB + Glass + Shakers|8 SKUs">
+  <rect x="318" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <rect x="336" y="898" width="8" height="80" fill="#14b8a6" fill-opacity="0.35" stroke="#0d9488" stroke-width="0.6"/>
+  <text x="331" y="985" text-anchor="middle" font-size="6" font-weight="600" fill="#0d9488">B6</text>
+</g>
+
+<text x="400" y="940" font-size="6" fill="#0d9488">6 ft aisles · 4ft W × 2ft D</text>
+<text x="400" y="950" font-size="6" fill="#0d9488">5 levels · 7ft H</text>
+
+
+<!-- ═══ Zone C + Small Bins + Returns/Defective ═══ -->
+<line x1="58" y1="995" x2="600" y2="995" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 2"/>
+
+<!-- Zone C -->
+<rect x="60" y="1005" width="115" height="70" fill="#06b6d4" fill-opacity="0.08" stroke="#0891b2" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="Zone C — Low Velocity|SKUs <3/day · 12 shelf units|60 pick positions|Gallon bottles, slow drinkware, Sterra, Granite"/>
+<rect x="72" y="1018" width="6" height="48" fill="#06b6d4" fill-opacity="0.3" stroke="#0891b2" stroke-width="0.5"/>
+<rect x="88" y="1018" width="6" height="48" fill="#06b6d4" fill-opacity="0.3" stroke="#0891b2" stroke-width="0.5"/>
+<rect x="104" y="1018" width="6" height="48" fill="#06b6d4" fill-opacity="0.3" stroke="#0891b2" stroke-width="0.5"/>
+<rect x="120" y="1018" width="6" height="48" fill="#06b6d4" fill-opacity="0.3" stroke="#0891b2" stroke-width="0.5"/>
+<rect x="136" y="1018" width="6" height="48" fill="#06b6d4" fill-opacity="0.3" stroke="#0891b2" stroke-width="0.5"/>
+<rect x="152" y="1018" width="6" height="48" fill="#06b6d4" fill-opacity="0.3" stroke="#0891b2" stroke-width="0.5"/>
+<text x="117" y="1013" text-anchor="middle" font-size="7" font-weight="700" fill="#0891b2">ZONE C · 60 pos</text>
+
+<!-- Small Bins -->
+<rect x="190" y="1005" width="155" height="70" fill="#8b5cf6" fill-opacity="0.08" stroke="#7c3aed" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="Small Bins S1-S2|Caps, Bumpers, Elixir, accessories|10 bin units × 12 bins = 120 positions|3ft W × 1.5ft D × 6ft H · 4ft aisles"/>
+<rect x="202" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="214" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="226" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="238" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="250" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="268" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="280" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="292" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="304" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<rect x="316" y="1018" width="5" height="48" fill="#8b5cf6" fill-opacity="0.3" stroke="#7c3aed" stroke-width="0.4"/>
+<text x="267" y="1013" text-anchor="middle" font-size="7" font-weight="700" fill="#7c3aed">SMALL BINS · 120 pos</text>
+
+<!-- Returns -->
+<rect x="360" y="1005" width="100" height="70" fill="#ef4444" fill-opacity="0.06" stroke="#dc2626" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="Returns Zone|Inspect, grade, restock or quarantine|6 shelf units · 30 positions"/>
+<rect x="372" y="1020" width="6" height="46" fill="#ef4444" fill-opacity="0.2" stroke="#dc2626" stroke-width="0.4"/>
+<rect x="384" y="1020" width="6" height="46" fill="#ef4444" fill-opacity="0.2" stroke="#dc2626" stroke-width="0.4"/>
+<rect x="396" y="1020" width="6" height="46" fill="#ef4444" fill-opacity="0.2" stroke="#dc2626" stroke-width="0.4"/>
+<rect x="408" y="1020" width="6" height="46" fill="#ef4444" fill-opacity="0.2" stroke="#dc2626" stroke-width="0.4"/>
+<rect x="420" y="1020" width="6" height="46" fill="#ef4444" fill-opacity="0.2" stroke="#dc2626" stroke-width="0.4"/>
+<rect x="432" y="1020" width="6" height="46" fill="#ef4444" fill-opacity="0.2" stroke="#dc2626" stroke-width="0.4"/>
+<text x="410" y="1013" text-anchor="middle" font-size="7" font-weight="700" fill="#dc2626">RET · 30 pos</text>
+
+<!-- Defective -->
+<rect x="475" y="1005" width="100" height="70" fill="#f43f5e" fill-opacity="0.06" stroke="#e11d48" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="Defective Zone|Quarantine — vendor RMA / disposal|4 shelf units · 20 positions"/>
+<rect x="490" y="1020" width="6" height="46" fill="#f43f5e" fill-opacity="0.15" stroke="#e11d48" stroke-width="0.4"/>
+<rect x="506" y="1020" width="6" height="46" fill="#f43f5e" fill-opacity="0.15" stroke="#e11d48" stroke-width="0.4"/>
+<rect x="522" y="1020" width="6" height="46" fill="#f43f5e" fill-opacity="0.15" stroke="#e11d48" stroke-width="0.4"/>
+<rect x="538" y="1020" width="6" height="46" fill="#f43f5e" fill-opacity="0.15" stroke="#e11d48" stroke-width="0.4"/>
+<text x="525" y="1013" text-anchor="middle" font-size="7" font-weight="700" fill="#e11d48">DEF · 20 pos</text>
+
+
+<!-- ═══ PACK STATIONS ═══ -->
+<line x1="58" y1="1085" x2="600" y2="1085" stroke="#aaa" stroke-width="0.5" stroke-dasharray="4 2"/>
+<text x="330" y="1097" text-anchor="middle" font-size="7" fill="#999">— PACKING AREA — 12 stations —</text>
+
+<!-- B2C Shopify 1-4 -->
+<g class="hoverable" data-tip="Pack Stn 1-4 (B2C Shopify)|~1000 orders/day · Wave-picked|QC scan, invoice, label print|6ft × 3ft tables">
+  <rect x="65" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="85" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S1</text>
+  <rect x="112" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="132" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S2</text>
+  <rect x="159" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="179" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S3</text>
+  <rect x="206" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="226" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S4</text>
+</g>
+<text x="150" y="1142" text-anchor="middle" font-size="6" font-weight="600" fill="#ea580c">B2C Shopify</text>
+
+<!-- Marketplace 5-8 -->
+<g class="hoverable" data-tip="Pack Stn 5-8 (Marketplace)|Amazon/FK singles · QC scan">
+  <rect x="270" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="290" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S5</text>
+  <rect x="317" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="337" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S6</text>
+  <rect x="364" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="384" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S7</text>
+  <rect x="411" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="431" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S8</text>
+</g>
+<text x="355" y="1142" text-anchor="middle" font-size="6" font-weight="600" fill="#ea580c">B2C Marketplace</text>
+
+<!-- B2B Bulk 9-12 -->
+<g class="hoverable" data-tip="Pack Stn 9-12 (B2B)|Bulk cartons · Pallet staging">
+  <rect x="475" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="495" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S9</text>
+  <rect x="522" y="1105" width="40" height="26" fill="#f97316" fill-opacity="0.15" stroke="#ea580c" stroke-width="0.7" rx="2"/>
+  <text x="542" y="1121" text-anchor="middle" font-size="5" font-weight="600" fill="#ea580c">S10</text>
+</g>
+<text x="520" y="1142" text-anchor="middle" font-size="6" font-weight="600" fill="#ea580c">B2B Bulk</text>
+
+<!-- Sort/conveyor line -->
+<line x1="65" y1="1155" x2="580" y2="1155" stroke="#ea580c" stroke-width="0.8" stroke-dasharray="6 3"/>
+<text x="330" y="1165" text-anchor="middle" font-size="6" fill="#ea580c">— sort line / conveyor —</text>
+
+
+<!-- ═══ DISPATCH DOCKS ═══ -->
+
+<rect x="60" y="1175" width="165" height="50" fill="#10b981" fill-opacity="0.08" stroke="#059669" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="B2C Dispatch|Courier pickup: Delhivery, BlueDart, DTDC|Sorted by carrier, wave-staged"/>
+<text x="142" y="1198" text-anchor="middle" font-size="9" font-weight="700" fill="#059669">B2C DISPATCH</text>
+<text x="142" y="1212" text-anchor="middle" font-size="6" fill="#059669">Courier</text>
+
+<rect x="240" y="1175" width="165" height="50" fill="#10b981" fill-opacity="0.08" stroke="#059669" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="B2B Dispatch|Truck loading: Amazon/FK warehouse|Pallet staging, manifest scan"/>
+<text x="322" y="1198" text-anchor="middle" font-size="9" font-weight="700" fill="#059669">B2B DISPATCH</text>
+<text x="322" y="1212" text-anchor="middle" font-size="6" fill="#059669">Truck</text>
+
+<rect x="420" y="1175" width="165" height="50" fill="#10b981" fill-opacity="0.08" stroke="#059669" stroke-width="0.7" rx="2"
+      class="hoverable" data-tip="Quick Commerce Dispatch|Blinkit, Zepto, Swiggy handoffs|Same-day SLA, small qty"/>
+<text x="502" y="1198" text-anchor="middle" font-size="9" font-weight="700" fill="#059669">QC DISPATCH</text>
+<text x="502" y="1212" text-anchor="middle" font-size="6" fill="#059669">Blinkit / Zepto / Swiggy</text>
+
+<!-- SOUTH WALL DOCK DOORS -->
+<rect x="110" y="1278" width="54" height="8" fill="#ff9f43" rx="2"
+      class="hoverable" data-tip="Dock 4|B2C courier pickup dock|12ft wide"/>
+<text x="137" y="1296" text-anchor="middle" font-size="7" font-weight="700" fill="#d97706">DOCK 4</text>
+
+<rect x="295" y="1278" width="54" height="8" fill="#ff9f43" rx="2"
+      class="hoverable" data-tip="Dock 5|B2B truck loading dock|14ft wide, dock leveler"/>
+<text x="322" y="1296" text-anchor="middle" font-size="7" font-weight="700" fill="#d97706">DOCK 5</text>
+
+<rect x="475" y="1278" width="54" height="8" fill="#ff9f43" rx="2"
+      class="hoverable" data-tip="Dock 6|Quick commerce pickup dock|10ft wide, handoff counter"/>
+<text x="502" y="1296" text-anchor="middle" font-size="7" font-weight="700" fill="#d97706">DOCK 6</text>
+
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!--           LEGEND & SPECS (right side)              -->
+<!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="660" y="50" width="370" height="520" fill="#fafbfc" stroke="#ddd" stroke-width="1" rx="6"/>
+<text x="845" y="78" text-anchor="middle" font-size="13" font-weight="800" fill="#333">LEGEND & SPECS</text>
+
+<!-- Zone colors -->
+<rect x="680" y="95" width="12" height="12" fill="#ff6b6b" fill-opacity="0.5" rx="2"/>
+<text x="700" y="105" font-size="9" fill="#333">Receiving Staging — dock-side strip, 20ft wide</text>
+
+<rect x="680" y="115" width="12" height="12" fill="#6c8aff" fill-opacity="0.5" rx="2"/>
+<text x="700" y="125" font-size="9" fill="#333">Pallet Racking — 48 bays, 112 positions, 20ft H</text>
+
+<rect x="680" y="135" width="12" height="12" fill="#a855f7" fill-opacity="0.5" rx="2"/>
+<text x="700" y="145" font-size="9" fill="#333">Heavy Shelving — 22 units, 88 positions, 7ft H</text>
+
+<rect x="680" y="155" width="12" height="12" fill="#3b82f6" fill-opacity="0.3" rx="2"/>
+<text x="700" y="165" font-size="9" fill="#333">Overstock — 80 floor pallet positions</text>
+
+<rect x="680" y="175" width="12" height="12" fill="#f59e0b" fill-opacity="0.5" rx="2"/>
+<text x="700" y="185" font-size="9" fill="#333">Kitting — 3 lines, 6 tables, 56 kits/day</text>
+
+<rect x="680" y="195" width="12" height="12" fill="#22c55e" fill-opacity="0.5" rx="2"/>
+<text x="700" y="205" font-size="9" fill="#333">Zone A — flow racks, 234 pos, ≥15/day</text>
+
+<rect x="680" y="215" width="12" height="12" fill="#14b8a6" fill-opacity="0.5" rx="2"/>
+<text x="700" y="225" font-size="9" fill="#333">Zone B — std shelving, 200 pos, 3-15/day</text>
+
+<rect x="680" y="235" width="12" height="12" fill="#06b6d4" fill-opacity="0.4" rx="2"/>
+<text x="700" y="245" font-size="9" fill="#333">Zone C — 60 pos, &lt;3/day</text>
+
+<rect x="680" y="255" width="12" height="12" fill="#8b5cf6" fill-opacity="0.4" rx="2"/>
+<text x="700" y="265" font-size="9" fill="#333">Small Bins — 120 pos, accessories</text>
+
+<rect x="680" y="275" width="12" height="12" fill="#ef4444" fill-opacity="0.3" rx="2"/>
+<text x="700" y="285" font-size="9" fill="#333">Returns 30 pos / Defective 20 pos</text>
+
+<rect x="680" y="295" width="12" height="12" fill="#f97316" fill-opacity="0.4" rx="2"/>
+<text x="700" y="305" font-size="9" fill="#333">Pack Stations — 12 stations</text>
+
+<rect x="680" y="315" width="12" height="12" fill="#10b981" fill-opacity="0.3" rx="2"/>
+<text x="700" y="325" font-size="9" fill="#333">Dispatch — 3 outbound docks</text>
+
+<rect x="680" y="335" width="12" height="12" fill="#ff9f43" rx="2"/>
+<text x="700" y="345" font-size="9" fill="#333">Dock Doors — 6 total (3 in + 3 out)</text>
+
+<!-- Bobcat specs -->
+<line x1="680" y1="365" x2="1010" y2="365" stroke="#ddd" stroke-width="0.8"/>
+<text x="845" y="385" text-anchor="middle" font-size="11" font-weight="700" fill="#333">🚜 BOBCAT / MHE CLEARANCE</text>
+<text x="680" y="403" font-size="9" fill="#555">Pallet racking aisles: 12 ft (bobcat + pallet)</text>
+<text x="680" y="418" font-size="9" fill="#555">Main travel aisle: 14 ft (two-way bobcat)</text>
+<text x="680" y="433" font-size="9" fill="#555">Heavy shelf aisles: 10 ft (bobcat/cart)</text>
+<text x="680" y="448" font-size="9" fill="#555">Cross-aisles: 10-12 ft (turning clearance)</text>
+<text x="680" y="463" font-size="9" fill="#555">Pick zone aisles: 5-6 ft (manual pick cart)</text>
+<text x="680" y="478" font-size="9" fill="#555">Small bin aisles: 4 ft (hand pick)</text>
+<text x="680" y="498" font-size="9" font-weight="700" fill="#d97706">Dock approach clearance: 14 ft min</text>
+<text x="680" y="513" font-size="9" fill="#555">Wall buffer: 3 ft all sides</text>
+<text x="680" y="528" font-size="9" fill="#555">Sprinkler clearance: 18 in below ceiling</text>
+<text x="680" y="548" font-size="9" font-weight="700" fill="#333">Estimated equipment cost: ₹36.2 L</text>
+
+</svg>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const tip = document.getElementById('tip');
+document.querySelectorAll('.hoverable').forEach(el => {
+  el.addEventListener('mouseenter', e => {
+    const d = el.dataset.tip;
+    if (!d) return;
+    const p = d.split('|');
+    tip.innerHTML = '<b>' + p[0] + '</b>' + p.slice(1).map(s => '<div>' + s + '</div>').join('');
+    tip.classList.add('show');
+  });
+  el.addEventListener('mousemove', e => {
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY - 8) + 'px';
+  });
+  el.addEventListener('mouseleave', () => tip.classList.remove('show'));
+});
+
+const svg = document.getElementById('svg');
+let sc = 1;
+function z(f) { sc *= f; svg.style.transform = 'scale(' + sc + ')'; svg.style.transformOrigin = 'top center'; }
+</script>
+</body>
+</html>

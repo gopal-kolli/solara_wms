@@ -549,15 +549,16 @@ def _run_release(settings, dry_run=False):
             #      orders stay on the manual sheet.
             covered_by_combo = (cint(settings.get("release_known_combos"))
                                 and _fully_covered_by_known_combos(so, box_map, settings))
+            max_parcels = cint(settings.get("max_release_parcels")) or 2
             if covered_by_combo or cint(settings.get("release_multibox_2p")):
                 live_lines = [it for it in so.items if cint(it.get("qty")) > 0]
                 if len(live_lines) <= _max_order_lines(settings):
                     parcels = _order_parcels(so, box_map, settings)
-                    if len(parcels) == 2 and box_count == 2:
-                        # Stamped for BOTH paths: the ClickPost script prefers the
-                        # plan, so labels list the parcel's FULL contents (a combo's
-                        # ride-along bottle/basket was previously on no label —
-                        # missed-item risk at the pack station, found 2026-07-17).
+                    # 2-box (Phase 2a) OR up to max_release_parcels (Phase 2b).
+                    # box_count must equal the parcel count (never under-ship) and
+                    # each parcel gets its own AWB; the plan is stamped so labels
+                    # list every parcel's full contents.
+                    if 2 <= len(parcels) <= max_parcels and box_count == len(parcels):
                         parcel_plan = _parcel_plan_for_dn(so, parcels)
             if not covered_by_combo and not parcel_plan:
                 res["skipped_multibox"] += 1
@@ -669,7 +670,7 @@ def _fetch_d2c_labels():
               "custom_shopify_fulfilled"]
     meta = frappe.get_meta("Delivery Note")
     for f in ("custom_awb_2", "custom_courier_2", "custom_box_count",
-              "custom_awb_shortfall"):
+              "custom_awb_shortfall", "custom_awb_list"):
         if meta.has_field(f):
             fields.append(f)
     has_shortfall_field = meta.has_field("custom_awb_shortfall")
@@ -794,8 +795,24 @@ def _cpid_map(settings):
 
 
 def _awb_courier_pairs(dn):
-    """(awb, courier) pairs for a DN. Automation DNs are single-parcel so this is
-    normally one pair; multi-box combos (awb_number + custom_awb_2) yield two."""
+    """(awb, courier) pairs for a DN. Single parcel -> one pair; 2-box combos ->
+    awb_number + custom_awb_2; N-box (Phase 2b) -> the full custom_awb_list JSON,
+    which is authoritative when present."""
+    raw = dn.get("custom_awb_list")
+    if raw:
+        try:
+            lst = json.loads(raw)
+            pairs = [(str(x.get("awb")).strip(), str(x.get("courier") or "").strip())
+                     for x in lst if x.get("awb")]
+            if pairs:
+                seen, out = set(), []
+                for a, c in pairs:
+                    if a and a not in seen:
+                        seen.add(a)
+                        out.append((a, c))
+                return out
+        except Exception:
+            _log("D2C AWB", "{0}: custom_awb_list bad JSON — falling back".format(dn.get("name")))
     awbs = [a.strip() for a in str(dn.get("awb_number") or "").split(",") if a.strip()]
     cours = [c.strip() for c in str(dn.get("courier_partner") or "").split(",") if c.strip()]
     if dn.get("custom_awb_2"):

@@ -19,6 +19,7 @@
   "release_ppcod",
   "release_known_combos",
   "release_multibox_2p",
+  "split_combos",
   "enforce_cutoff_on_release",
   "cutoff_hour",
   "prepare_waves_enabled",
@@ -302,12 +303,18 @@
    "default": "0",
    "label": "Release 2-Parcel Multibox (Phase 2a)",
    "description": "Release ANY order whose parcel plan is exactly 2 parcels (e.g. appliance + cookware stack). The release job writes the plan onto the DN; ClickPost mints one AWB per parcel with value-weighted COD. 3+ parcel orders stay on the manual sheet."
+  },
+  {
+   "fieldname": "split_combos",
+   "fieldtype": "Long Text",
+   "label": "Split Combos (SKU \u2192 children JSON)",
+   "description": "Combo SKU \u2192 list of child SKUs, one physical parcel each. Drives per-box label contents (each label names its actual machine) and the parcel plan. Code default covers only SOL-AFO-501-JUC-121 when empty."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-17 10:00:00.000000",
+ "modified": "2026-07-17 13:05:00.000000",
  "modified_by": "Administrator",
  "module": "WMS",
  "name": "D2C Fulfillment Settings",

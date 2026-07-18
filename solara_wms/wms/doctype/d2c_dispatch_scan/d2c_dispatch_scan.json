@@ -1,0 +1,34 @@
+{
+ "actions": [],
+ "autoname": "format:DSCAN-{#####}",
+ "creation": "2026-07-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["awb","delivery_note","shopify_order_number","courier","box_index","box_count","scanned_at","scanned_by"],
+ "fields": [
+  {"fieldname":"awb","fieldtype":"Data","label":"AWB","reqd":1,"unique":1,"in_list_view":1,
+   "description":"Courier AWB of the scanned parcel. UNIQUE — the DB guarantees one dispatch scan per parcel (the duplicate block)."},
+  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Delivery Note","in_list_view":1},
+  {"fieldname":"shopify_order_number","fieldtype":"Data","label":"Order (SOL)","in_list_view":1},
+  {"fieldname":"courier","fieldtype":"Data","label":"Courier"},
+  {"fieldname":"box_index","fieldtype":"Int","label":"Box #"},
+  {"fieldname":"box_count","fieldtype":"Int","label":"Boxes in order"},
+  {"fieldname":"scanned_at","fieldtype":"Datetime","label":"Scanned At","in_list_view":1},
+  {"fieldname":"scanned_by","fieldtype":"Data","label":"Scanned By","in_list_view":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-07-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "D2C Dispatch Scan",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"print":1,"read":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"read":1,"role":"Returns Manager","write":1}
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

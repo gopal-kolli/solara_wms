@@ -92,5 +92,45 @@
   "no_copy": 1,
   "insert_after": "custom_awb_2",
   "description": "JSON [{awb,courier}] for ALL parcels of an N-box order (Phase 2b). awb_number+custom_awb_2 keep parcels 1-2 for backward compat; the guard/label-fetch/fulfillment read this for the full set."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_dispatched",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_dispatched",
+  "label": "Dispatched (scanned)",
+  "fieldtype": "Check",
+  "read_only": 1,
+  "no_copy": 1,
+  "insert_after": "custom_awb_shortfall",
+  "description": "Set by the D2C dispatch-scan flow when all of the order's parcels have been scanned at courier handover.",
+  "default": "0"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_dispatched_at",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_dispatched_at",
+  "label": "Dispatched At",
+  "fieldtype": "Datetime",
+  "read_only": 1,
+  "no_copy": 1,
+  "insert_after": "custom_awb_shortfall",
+  "description": "Set by the D2C dispatch-scan flow when all of the order's parcels have been scanned at courier handover."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_dispatched_by",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_dispatched_by",
+  "label": "Dispatched By",
+  "fieldtype": "Data",
+  "read_only": 1,
+  "no_copy": 1,
+  "insert_after": "custom_awb_shortfall",
+  "description": "Set by the D2C dispatch-scan flow when all of the order's parcels have been scanned at courier handover."
  }
 ]

@@ -62,6 +62,14 @@ DEFAULT_PREFIX = "SHP"
 SI_SERIES = "SHPSI27-.#####"
 D2C_INCOME_ACCOUNT = "Sales - WTBBPL"
 
+# Batch pick-list/labels PDFs are private Files attached to a D2C Prepare Batch,
+# readable in Atlas only by System Manager / Returns Manager. Non-admin wave-email
+# recipients (dispatch/ops leads) therefore 403 on the raw /private/files link on
+# links-only (>9 MB) batches. The P&L dashboard's label-status route proxies those
+# PDFs through the Atlas token, so any @solara.in Google login can open them with no
+# Atlas file permission. Wave emails link here instead of the raw Atlas file URL.
+LABEL_DASHBOARD_BASE = "https://shopify-pl-dashboard-916807701528.asia-south1.run.app"
+
 # ClickPost label fetch-by-AWB — for couriers (e.g. Shadowfax) that assign an AWB
 # but do NOT write the presigned label URL back onto the DN. cp_id is ClickPost's
 # per-courier id; seed the common ones, discover + cache the rest. API key lives
@@ -1443,23 +1451,23 @@ def _email_batch(batch_name, summary, settings):
                 attachments.append({"fname": url.rsplit("/", 1)[-1], "fcontent": content})
         if total > 9 * 1024 * 1024:
             attachments = []  # links-only; SES bounces oversized mail silently
-        site = frappe.utils.get_url()
         missing = summary.get("missing_labels") or []
         body = (
             "<p><b>D2C dispatch batch {batch}</b> — {orders} orders / {units:g} units "
             "({run_type}, {date}, stamp {stamp})</p>"
-            "<ul><li>Pick list: <a href='{site}{pl}'>{pl_name}</a></li>"
-            "<li>Labels PDF: <a href='{site}{lb}'>{lb_name}</a></li></ul>"
+            "<ul><li>Pick list: <a href='{dash}/reconciliation/label-status/batch/{batch}/picklist.pdf'>{pl_name}</a></li>"
+            "<li>Labels PDF: <a href='{dash}/reconciliation/label-status/batch/{batch}/labels.pdf'>{lb_name}</a></li></ul>"
             "{attach_note}{missing_note}"
             "<p>Ship these from the Atlas batch and SKIP them on the manual sheet.</p>"
         ).format(
             batch=batch_name, orders=summary.get("orders"), units=summary.get("units") or 0,
             run_type=summary.get("run_type") or "", date=summary.get("date"),
-            stamp=summary.get("batch_stamp"), site=site,
-            pl=summary.get("pick_list_url") or "", pl_name=(summary.get("pick_list_url") or "").rsplit("/", 1)[-1],
-            lb=summary.get("labels_pdf_url") or "", lb_name=(summary.get("labels_pdf_url") or "").rsplit("/", 1)[-1],
-            attach_note="<p>Both PDFs attached.</p>" if attachments else
-                        "<p>PDFs too large to attach — use the links (Atlas login needed).</p>",
+            stamp=summary.get("batch_stamp"), dash=LABEL_DASHBOARD_BASE,
+            pl_name=(summary.get("pick_list_url") or "").rsplit("/", 1)[-1],
+            lb_name=(summary.get("labels_pdf_url") or "").rsplit("/", 1)[-1],
+            attach_note="<p>Both PDFs attached (dashboard links below work too).</p>" if attachments else
+                        "<p>PDFs too large to attach — open via the dashboard links above "
+                        "(sign in with your @solara.in Google account).</p>",
             missing_note="<p>⚠ {0} order(s) missing a label at prepare time — they will "
                          "surface in the next batch once labelled.</p>".format(len(missing)) if missing else "",
         )

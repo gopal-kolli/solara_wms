@@ -29,6 +29,7 @@
   "prepare_wave_hours",
   "prepare_lookback_days",
   "wave_email_recipients",
+  "wave_slack_webhook",
   "ops_sheet_section",
   "ops_sheet_enabled",
   "ops_sheet_id",
@@ -275,6 +276,12 @@
    "fieldtype": "Small Text",
    "label": "Batch Email Recipients",
    "description": "Comma/newline separated emails. Every Prepare run that creates a batch (wave or ad-hoc) emails them the pick list + labels PDFs. Empty = no email."
+  },
+  {
+   "fieldname": "wave_slack_webhook",
+   "fieldtype": "Password",
+   "label": "Wave Slack Webhook URL",
+   "description": "Slack Incoming Webhook URL. Every Prepare run that creates a batch posts the wave (order count + label/pick links) to the webhook's channel — a reliable path independent of email. Empty = no Slack post."
   },
   {
    "fieldname": "ops_sheet_section",

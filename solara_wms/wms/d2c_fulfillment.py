@@ -1405,6 +1405,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     frappe.db.commit()
     summary["batch"] = batch.name
     _email_batch(batch.name, summary, settings)
+    _slack_batch(batch.name, summary, settings)
     return summary
 
 
@@ -1482,6 +1483,41 @@ def _email_batch(batch_name, summary, settings):
             batch_name, len(recipients), len(attachments), total // 1024))
     except Exception:
         _log("D2C Prepare Email", "batch {0}: send failed (batch itself is fine)\n{1}".format(
+            batch_name, frappe.get_traceback()))
+
+
+def _slack_batch(batch_name, summary, settings):
+    """Post the wave 'labels ready' notification to Slack (Incoming Webhook).
+    Runs off the site's email relay, so the team is notified even when email is
+    failing (the email_delivery_service relay 504'd every wave on 19-Jul).
+    Best-effort — a Slack failure must never fail the batch or block the email."""
+    try:
+        webhook = (settings.get_password("wave_slack_webhook", raise_exception=False) or "").strip()
+    except Exception:
+        webhook = ""
+    if not webhook:
+        return
+    import requests
+    dash = LABEL_DASHBOARD_BASE
+    missing = summary.get("missing_labels") or []
+    lines = [
+        ":package: *D2C {0} wave — labels ready*".format(summary.get("run_type") or "Ad-hoc"),
+        "Batch *{0}* · *{1} orders* / {2:g} units · stamp {3}".format(
+            batch_name, summary.get("orders"), summary.get("units") or 0,
+            summary.get("batch_stamp")),
+        "• <{0}/reconciliation/label-status/batch/{1}/labels.pdf|:label: Labels PDF>".format(dash, batch_name),
+        "• <{0}/reconciliation/label-status/batch/{1}/picklist.pdf|:clipboard: Pick list>".format(dash, batch_name),
+        "Ship from the Atlas batch and *skip them on the manual sheet*.",
+    ]
+    if missing:
+        lines.append(":warning: {0} order(s) awaiting a label at prepare time — "
+                     "they appear in the next wave once labelled.".format(len(missing)))
+    try:
+        resp = requests.post(webhook, json={"text": "\n".join(lines)}, timeout=15)
+        _log("D2C Prepare Slack", "batch {0}: slack {1} ({2})".format(
+            batch_name, "posted" if resp.status_code == 200 else "FAILED", resp.status_code))
+    except Exception:
+        _log("D2C Prepare Slack", "batch {0}: slack post failed (batch/email unaffected)\n{1}".format(
             batch_name, frappe.get_traceback()))
 
 

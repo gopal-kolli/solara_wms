@@ -1296,7 +1296,7 @@ def _todays_d2c_dns(settings, on_date):
         filters=filters,
         fields=["name", "awb_number", "courier_partner", "customer",
                 "customer_name", "shopify_order_id", "shopify_order_number",
-                "shipping_label"],
+                "shipping_label", "custom_box_count"],
         limit_page_length=0,
     )
     for dn in dns:
@@ -1378,6 +1378,16 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     result = _render_batch_files(dns, on_date, batch_no, stamp)
     summary.update(result)
 
+    # Courier split (parcels = labels per carrier) for the email/Slack handover note
+    csplit = {}
+    for d in dns:
+        ck = (d.get("courier_partner") or "—").strip() or "—"
+        ce = csplit.setdefault(ck, {"orders": 0, "parcels": 0})
+        ce["orders"] += 1
+        ce["parcels"] += cint(d.get("custom_box_count")) or 1
+    summary["by_courier"] = sorted(
+        ({"courier": k, **v} for k, v in csplit.items()), key=lambda x: -x["parcels"])
+
     batch = frappe.get_doc({
         "doctype": "D2C Prepare Batch",
         "date": on_date,
@@ -1453,14 +1463,19 @@ def _email_batch(batch_name, summary, settings):
         if total > 9 * 1024 * 1024:
             attachments = []  # links-only; SES bounces oversized mail silently
         missing = summary.get("missing_labels") or []
+        by_c = summary.get("by_courier") or []
+        courier_note = ("<p><b>By courier:</b> " + " &nbsp;·&nbsp; ".join(
+            "{0} <b>{1}</b>".format(c["courier"], c["parcels"]) for c in by_c) + "</p>") if by_c else ""
         body = (
             "<p><b>D2C dispatch batch {batch}</b> — {orders} orders / {units:g} units "
             "({run_type}, {date}, stamp {stamp})</p>"
+            "{courier_note}"
             "<ul><li>Pick list: <a href='{dash}/reconciliation/label-status/batch/{batch}/picklist.pdf'>{pl_name}</a></li>"
             "<li>Labels PDF: <a href='{dash}/reconciliation/label-status/batch/{batch}/labels.pdf'>{lb_name}</a></li></ul>"
             "{attach_note}{missing_note}"
             "<p>Ship these from the Atlas batch and SKIP them on the manual sheet.</p>"
         ).format(
+            courier_note=courier_note,
             batch=batch_name, orders=summary.get("orders"), units=summary.get("units") or 0,
             run_type=summary.get("run_type") or "", date=summary.get("date"),
             stamp=summary.get("batch_stamp"), dash=LABEL_DASHBOARD_BASE,
@@ -1509,6 +1524,10 @@ def _slack_batch(batch_name, summary, settings):
         "• <{0}/reconciliation/label-status/batch/{1}/picklist.pdf|:clipboard: Pick list>".format(dash, batch_name),
         "Ship from the Atlas batch and *skip them on the manual sheet*.",
     ]
+    by_c = summary.get("by_courier") or []
+    if by_c:
+        lines.insert(2, "*By courier:* " + "  ·  ".join(
+            "{0} *{1}*".format(c["courier"], c["parcels"]) for c in by_c))
     if missing:
         lines.append(":warning: {0} order(s) awaiting a label at prepare time — "
                      "they appear in the next wave once labelled.".format(len(missing)))

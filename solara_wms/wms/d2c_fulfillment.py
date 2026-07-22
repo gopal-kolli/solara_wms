@@ -1615,12 +1615,59 @@ def _render_batch_files(dns, on_date, batch_no, stamp):
     }
 
 
+def _enrich_physical_lines(dns):
+    """Attach dn['_lines'] = the PHYSICAL pieces to pick/pack (Product Bundle DN
+    rows exploded into their Packed Item components, each tagged with its bundle
+    code) and dn['_service'] = nothing-to-pack rows (non-stock lines such as
+    extended warranty). DN item rows themselves are untouched — pack sequence,
+    labels and batch records are unaffected. Pick-list rendering only."""
+    names = [d["name"] for d in dns]
+    if not names:
+        return
+    packed = frappe.get_all(
+        "Packed Item",
+        filters={"parent": ["in", names], "parenttype": "Delivery Note"},
+        fields=["parent", "parent_item", "item_code", "item_name", "qty"],
+        order_by="idx",
+        limit_page_length=0,
+    )
+    by_dn = {}
+    for p in packed:
+        by_dn.setdefault(p.parent, {}).setdefault(p.parent_item, []).append(p)
+    codes = sorted({i.item_code for d in dns for i in d["items"]})
+    stock = {}
+    if codes:
+        for r in frappe.get_all("Item", filters={"item_code": ["in", codes]},
+                                fields=["item_code", "is_stock_item"],
+                                limit_page_length=0):
+            stock[r.item_code] = cint(r.is_stock_item)
+    for d in dns:
+        packs = by_dn.get(d["name"], {})
+        lines, service = [], []
+        for it in d["items"]:
+            comps = packs.get(it.item_code)
+            if comps:
+                for c in comps:
+                    lines.append({"item_code": c.item_code, "item_name": c.item_name,
+                                  "qty": flt(c.qty), "bundle": it.item_code})
+            elif stock.get(it.item_code, 1):
+                lines.append({"item_code": it.item_code, "item_name": it.item_name,
+                              "qty": flt(it.qty), "bundle": None})
+            else:
+                service.append(it)
+        d["_lines"] = lines
+        d["_service"] = service
+
+
 def _sku_summary(dns):
+    # Aggregates dn['_lines'] (physical pieces): bundles appear as the component
+    # SKUs the picker actually pulls from a bin; service rows excluded.
+    # _enrich_physical_lines must have run.
     agg = {}
     for d in dns:
-        for it in d["items"]:
-            row = agg.setdefault(it.item_code, {"item_name": it.item_name, "qty": 0})
-            row["qty"] += flt(it.qty)
+        for it in d["_lines"]:
+            row = agg.setdefault(it["item_code"], {"item_name": it["item_name"], "qty": 0})
+            row["qty"] += flt(it["qty"])
     return sorted(
         ({"item_code": k, **v} for k, v in agg.items()),
         key=lambda r: r["item_code"],
@@ -1630,33 +1677,60 @@ def _sku_summary(dns):
 def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
     from frappe.utils.pdf import get_pdf
 
+    _enrich_physical_lines(dns)
     sku_rows = _sku_summary(dns)
-    total_units = sum(r["qty"] for r in sku_rows)
+    total_pieces = sum(r["qty"] for r in sku_rows)
 
     def esc(s):
         return frappe.utils.escape_html(str(s or ""))
+
+    # Drawn checkbox (span, not a unicode glyph — guaranteed to render in wkhtmltopdf)
+    chk = ("<span style='display:inline-block;width:8px;height:8px;"
+           "border:1px solid #222;margin-right:5px'></span>")
 
     pick_rows = "".join(
         "<tr><td>{0}</td><td>{1}</td><td style='text-align:right'>{2:g}</td></tr>".format(
             esc(r["item_code"]), esc(r["item_name"]), r["qty"])
         for r in sku_rows
     )
+
+    def content_cell(d):
+        parts = []
+        for ln in d["_lines"]:
+            of = (" <span style='color:#999'>(of {0})</span>".format(esc(ln["bundle"]))
+                  if ln["bundle"] else "")
+            parts.append("{0}{1:g}× {2}{3}".format(chk, ln["qty"], esc(ln["item_code"]), of))
+        for it in d["_service"]:
+            parts.append(
+                "<span style='color:#999;font-style:italic'>{0}×{1:g} — service, not packed</span>"
+                .format(esc(it.item_code), flt(it.qty)))
+        return "<br>".join(parts)
+
     pack_rows = "".join(
-        "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td></tr>".format(
-            i + 1, esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]), esc(d.get("awb_number")),
-            esc(d.get("courier_partner")),
-            esc(", ".join("{0}×{1:g}".format(it.item_code, flt(it.qty)) for it in d["items"])))
+        ("<tr{shade}><td>{n}</td><td>{order}</td><td>{awb}</td><td>{courier}</td>"
+         "<td>{contents}</td>"
+         "<td style='text-align:center;font-weight:bold'>{pieces:g}</td>"
+         "<td></td><td></td></tr>").format(
+            # Shaded row = multi-piece order → 100% second-person QC count (SOP-PACK-QC)
+            shade=" style='background:#e8e8e8'"
+                  if sum(flt(l["qty"]) for l in d["_lines"]) > 1 else "",
+            n=i + 1,
+            order=esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]),
+            awb=esc(d.get("awb_number")),
+            courier=esc(d.get("courier_partner")),
+            contents=content_cell(d),
+            pieces=sum(flt(l["qty"]) for l in d["_lines"]))
         for i, d in enumerate(dns)
     )
 
     html = """
     <div style="font-family:Arial,sans-serif;font-size:11px">
       <h2 style="margin:0">D2C Pick List — {date} — Batch {batch_no} ({stamp})</h2>
-      <p style="margin:2px 0 10px">Orders: <b>{orders}</b> &nbsp; Units: <b>{units:g}</b>
+      <p style="margin:2px 0 10px">Orders: <b>{orders}</b> &nbsp; Pieces: <b>{units:g}</b>
          &nbsp; SKUs: <b>{skus}</b> &nbsp;
          <span style="color:#888">generated {gen}</span></p>
 
-      <h3 style="margin:12px 0 4px">A. PICK (by SKU)</h3>
+      <h3 style="margin:12px 0 4px">A. PICK (by SKU — bundles exploded to components)</h3>
       <table border="1" cellspacing="0" cellpadding="4" width="100%"
              style="border-collapse:collapse">
         <thead><tr style="background:#f0f0f0">
@@ -1664,23 +1738,29 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
         </tr></thead>
         <tbody>{pick_rows}
           <tr style="background:#fafafa;font-weight:bold">
-            <td colspan="2" align="right">Total units</td>
+            <td colspan="2" align="right">Total pieces</td>
             <td align="right">{units:g}</td></tr>
         </tbody>
       </table>
 
-      <h3 style="margin:16px 0 4px">B. PACK (by order — matches label sequence)</h3>
+      <h3 style="margin:16px 0 4px">B. PACK + QC (by order — matches label sequence)</h3>
+      <p style="margin:0 0 4px;color:#555">Tick every box line as it goes in.
+         <b>Shaded row = multi-piece order → second person counts before sealing
+         (SOP-PACK-QC), both initial.</b> Pieces = physical units that must be in
+         the parcel(s).</p>
       <table border="1" cellspacing="0" cellpadding="4" width="100%"
              style="border-collapse:collapse">
         <thead><tr style="background:#f0f0f0">
           <th>#</th><th align="left">Order</th><th align="left">AWB</th>
           <th align="left">Courier</th><th align="left">Contents</th>
+          <th>Pieces</th>
+          <th style="width:34px">Packed</th><th style="width:34px">QC</th>
         </tr></thead>
         <tbody>{pack_rows}</tbody>
       </table>
     </div>
     """.format(date=on_date, batch_no=batch_no, stamp=stamp, orders=len(dns),
-               units=total_units, skus=len(sku_rows),
+               units=total_pieces, skus=len(sku_rows),
                gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
                pick_rows=pick_rows, pack_rows=pack_rows)
 

@@ -1749,12 +1749,17 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
          (SOP-PACK-QC), both initial.</b> Pieces = physical units that must be in
          the parcel(s).</p>
       <table border="1" cellspacing="0" cellpadding="4" width="100%"
-             style="border-collapse:collapse">
+             style="border-collapse:collapse;table-layout:fixed;word-wrap:break-word">
+        <colgroup>
+          <col style="width:4%"><col style="width:13%"><col style="width:17%">
+          <col style="width:9%"><col style="width:39%"><col style="width:6%">
+          <col style="width:6%"><col style="width:6%">
+        </colgroup>
         <thead><tr style="background:#f0f0f0">
           <th>#</th><th align="left">Order</th><th align="left">AWB</th>
           <th align="left">Courier</th><th align="left">Contents</th>
-          <th>Pieces</th>
-          <th style="width:34px">Packed</th><th style="width:34px">QC</th>
+          <th>Pcs</th>
+          <th>Packed</th><th>QC</th>
         </tr></thead>
         <tbody>{pack_rows}</tbody>
       </table>

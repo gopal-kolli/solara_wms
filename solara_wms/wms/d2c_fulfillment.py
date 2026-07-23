@@ -453,8 +453,58 @@ def _release_d2c_shipments(force=False):
     return result
 
 
-def _candidate_sos(settings, limit):
-    """SHP Sales Orders that could be released, before the per-order gates."""
+def enqueue_release_range(from_date, to_date):
+    """Queue a background release of EVERY order with transaction_date in
+    [from_date, to_date] (manual date-range pull). Returns immediately; the job
+    releases oldest-first through the whole range and posts a Slack summary when
+    done. Bypasses the release_enabled pause; respects Dry Run + all per-order gates."""
+    from_date, to_date = str(getdate(from_date)), str(getdate(to_date))
+    frappe.enqueue(
+        "solara_wms.wms.d2c_fulfillment._release_range_job",
+        queue="long", timeout=3600, job_name="d2c_release_range",
+        from_date=from_date, to_date=to_date, user=frappe.session.user)
+    return {"queued": True, "from_date": from_date, "to_date": to_date}
+
+
+def _release_range_job(from_date, to_date, user=None):
+    """Background worker: drain every releasable order in the date range (looping
+    the release job max_orders at a time until the range is empty), then post a
+    summary to the wave Slack channel. Runs as Administrator (matches the cron)."""
+    frappe.set_user("Administrator")
+    settings = _settings()
+    dry = cint(settings.get("dry_run"))
+    keys = ("created", "skipped_multibox", "skipped_nostock", "skipped_dn_exists",
+            "skipped_bad_data", "skipped_on_hold", "skipped_ppcod",
+            "skipped_broken_ppcod", "failed")
+    agg = {k: 0 for k in keys}
+    for _i in range(400):  # safety ceiling (400 * max_orders_per_run)
+        res = _run_release(settings, dry_run=dry, from_date=from_date, to_date=to_date)
+        for k in keys:
+            agg[k] += cint(res.get(k))
+        frappe.db.commit()
+        if not res["created"]:
+            break  # only gated / no-more-releasable orders remain in the range
+    held = (agg["skipped_on_hold"] + agg["skipped_ppcod"] + agg["skipped_multibox"]
+            + agg["skipped_nostock"])
+    lines = [
+        ":package: *D2C range release done* — {0} → {1}{2}".format(
+            from_date, to_date, " (dry-run)" if dry else ""),
+        "Released *{0}* · held {1} (on-hold {2} · PPCOD {3} · multibox {4} · no-stock {5}) · "
+        "bad-data {6} · failed {7}".format(
+            agg["created"], held, agg["skipped_on_hold"], agg["skipped_ppcod"],
+            agg["skipped_multibox"], agg["skipped_nostock"], agg["skipped_bad_data"],
+            agg["failed"]),
+        "Now run a wave / *Prepare* to print the pick list + labels for the released batch.",
+    ]
+    _post_slack(settings, "\n".join(lines), tag="D2C Range Release")
+    _log("D2C Range Release",
+         "range {0}..{1} by {2}: {3}".format(from_date, to_date, user, json.dumps(agg)))
+
+
+def _candidate_sos(settings, limit, from_date=None, to_date=None):
+    """SHP Sales Orders that could be released, before the per-order gates.
+    from_date/to_date (manual date-range pull) scope by transaction_date instead of
+    the rolling lookback window — 'process everything ordered on Jul 18-19'."""
     lookback = cint(settings.get("lookback_days")) or 3
     filters = {
         "name": ["like", _prefix(settings) + "%"],
@@ -462,8 +512,11 @@ def _candidate_sos(settings, limit):
         "status": ["in", RELEASABLE_STATUSES],
         "per_delivered": 0,
         "skip_delivery_note": 0,
-        "transaction_date": [">=", add_days(nowdate(), -lookback)],
     }
+    if from_date and to_date:
+        filters["transaction_date"] = ["between", [str(from_date), str(to_date)]]
+    else:
+        filters["transaction_date"] = [">=", add_days(nowdate(), -lookback)]
     return frappe.get_all(
         "Sales Order",
         filters=filters,
@@ -486,14 +539,14 @@ def _sos_with_existing_dn(so_names):
     return {r.against_sales_order for r in rows}
 
 
-def _run_release(settings, dry_run=False):
+def _run_release(settings, dry_run=False, from_date=None, to_date=None):
     limit = cint(settings.get("release_batch_size")) or 200
     max_orders = cint(settings.get("max_orders_per_run")) or limit
     warehouse = _source_warehouse(settings)
     box_map = _box_config(settings)
     require_stock = cint(settings.get("require_stock"))
 
-    candidates = _candidate_sos(settings, limit)
+    candidates = _candidate_sos(settings, limit, from_date=from_date, to_date=to_date)
     already = _sos_with_existing_dn([c.name for c in candidates])
 
     res = {

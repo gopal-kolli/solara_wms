@@ -14,6 +14,13 @@ class D2CFulfillmentSettings(Document):
         return d2c_fulfillment.release_d2c_shipments(force=True)
 
     @frappe.whitelist()
+    def run_release_range(self, from_date, to_date):
+        """Queue a background release of every order ordered between from_date and
+        to_date (manual date-range pull). Returns immediately; a summary posts to
+        the wave Slack channel when the whole range is drained."""
+        return d2c_fulfillment.enqueue_release_range(from_date, to_date)
+
+    @frappe.whitelist()
     def fetch_labels_now(self):
         """Manual trigger for the label-fetch job (respects its gate)."""
         return d2c_fulfillment.fetch_d2c_labels()

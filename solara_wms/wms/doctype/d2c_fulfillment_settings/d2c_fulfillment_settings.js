@@ -1,50 +1,76 @@
 frappe.ui.form.on("D2C Fulfillment Settings", {
     refresh(frm) {
-        // Readable one-line summary of a release result (used by Run Now).
+        // Readable one-line summary of a release result.
         const fmt_release = (m) => {
             m = m || {};
             const held = (m.skipped_on_hold || 0) + (m.skipped_ppcod || 0)
                 + (m.skipped_multibox || 0) + (m.skipped_nostock || 0);
-            return `<b>Released ${m.created || 0}</b> · held ${held} `
-                + `(on-hold ${m.skipped_on_hold || 0} · PPCOD ${m.skipped_ppcod || 0} `
+            return `<b>${m.dry_run ? "Would release" : "Released"} ${m.created || 0}</b> `
+                + `· held ${held} (on-hold ${m.skipped_on_hold || 0} · PPCOD ${m.skipped_ppcod || 0} `
                 + `· multibox ${m.skipped_multibox || 0} · no-stock ${m.skipped_nostock || 0}) `
-                + `· bad-data ${m.skipped_bad_data || 0} · failed ${m.failed || 0}`
-                + (m.dry_run ? " <i>(dry-run)</i>" : "");
+                + `· bad-data ${m.skipped_bad_data || 0} · failed ${m.failed || 0}`;
         };
 
-        // Manual date-range pull (background): release everything ordered in a range.
+        // SAFE: preview what would release, no writes, no customer emails.
+        frm.add_custom_button(__("Preview (dry-run)"), () => {
+            frm.call("preview_release").then((r) => {
+                frappe.msgprint({
+                    title: __("Preview — nothing was released"),
+                    message: fmt_release(r.message)
+                        + "<br><br><i>" + __("This is only a preview — no Delivery Notes were "
+                        + "created and no customer was notified. Use Run Release Now / Release "
+                        + "for Date Range to actually ship.") + "</i>",
+                    indicator: "green",
+                });
+            });
+        });
+
+        // LIVE: date-range background release (with confirm).
         frm.add_custom_button(__("Release Orders for Date Range"), () => {
             frappe.prompt(
                 [{ fieldname: "from_date", label: __("From Date"), fieldtype: "Date", reqd: 1 },
                  { fieldname: "to_date", label: __("To Date"), fieldtype: "Date", reqd: 1 }],
                 (v) => {
-                    frm.call("run_release_range",
-                        { from_date: v.from_date, to_date: v.to_date }).then((r) => {
-                        frappe.msgprint({
-                            title: __("Range Release Queued"),
-                            message: __(
-                                "Releasing all orders from {0} to {1} in the background "
-                                + "(oldest first). A summary will post to #shopify-shipping "
-                                + "when the whole range is done — then run a wave / Prepare "
-                                + "to print the pick list + labels.",
-                                [v.from_date, v.to_date]),
-                            indicator: "blue",
+                    frappe.confirm(
+                        __("This will RELEASE every order from {0} to {1} for real — "
+                           + "create labels and email those customers &quot;shipped&quot;. "
+                           + "It ignores the pause. Proceed?", [v.from_date, v.to_date]),
+                        () => {
+                            frm.call("run_release_range",
+                                { from_date: v.from_date, to_date: v.to_date }).then((r) => {
+                                frappe.msgprint({
+                                    title: __("Range Release Queued"),
+                                    message: __(
+                                        "Releasing all orders from {0} to {1} in the background "
+                                        + "(oldest first). A summary posts to #shopify-shipping "
+                                        + "when done — then a wave / Prepare prints the pick list "
+                                        + "+ labels.", [v.from_date, v.to_date]),
+                                    indicator: "blue",
+                                });
+                            });
                         });
-                    });
                 },
                 __("Release Orders for Date Range"),
-                __("Release"),
+                __("Next"),
             );
         });
 
+        // LIVE: count-based pull (with confirm).
         frm.add_custom_button(__("Run Release Now"), () => {
-            frm.call("run_release_now").then((r) => {
-                frappe.msgprint({
-                    title: __("Release Result"),
-                    message: fmt_release(r.message),
-                    indicator: "blue",
+            const n = frm.doc.max_orders_per_run || 50;
+            frappe.confirm(
+                __("This RELEASES up to {0} of the oldest orders for real — creates labels "
+                   + "and emails those customers &quot;shipped&quot;, and ignores the pause. "
+                   + "Proceed? (Use Preview to look without shipping.)", [n]),
+                () => {
+                    frm.call("run_release_now").then((r) => {
+                        frappe.msgprint({
+                            title: __("Release Result"),
+                            message: fmt_release(r.message),
+                            indicator: "blue",
+                        });
+                    });
                 });
-            });
         });
 
         frm.add_custom_button(__("Fetch Labels Now"), () => {

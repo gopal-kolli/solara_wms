@@ -21,6 +21,15 @@ class D2CFulfillmentSettings(Document):
         return d2c_fulfillment.enqueue_release_range(from_date, to_date)
 
     @frappe.whitelist()
+    def preview_release(self, from_date=None, to_date=None):
+        """SAFE dry-run — how many orders WOULD release right now (by outcome),
+        WITHOUT creating any Delivery Note or notifying any customer. This is the
+        safe way to 'just look' before pulling a batch. Never writes."""
+        settings = d2c_fulfillment._settings()
+        return d2c_fulfillment._run_release(
+            settings, dry_run=True, from_date=from_date, to_date=to_date)
+
+    @frappe.whitelist()
     def fetch_labels_now(self):
         """Manual trigger for the label-fetch job (respects its gate)."""
         return d2c_fulfillment.fetch_d2c_labels()

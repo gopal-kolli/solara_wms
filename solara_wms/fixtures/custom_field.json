@@ -109,6 +109,20 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Delivery Note-custom_prepare_batch",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_prepare_batch",
+  "label": "Prepare Batch (labels)",
+  "fieldtype": "Link",
+  "options": "D2C Prepare Batch",
+  "read_only": 1,
+  "no_copy": 1,
+  "insert_after": "custom_box_count",
+  "description": "The D2C Prepare Batch this DN's label was printed in (label_found=1). Stamped when the batch is created, so a delivery note traces straight to the wave / pick-list / labels PDF it went out on."
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Delivery Note-custom_dispatched_at",
   "dt": "Delivery Note",
   "module": "WMS",

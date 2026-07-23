@@ -28,7 +28,7 @@ fixtures = [
     {"dt": "Role", "filters": [["name", "in", ["Returns Manager", "HQ Returns Reviewer"]]]},
     {"dt": "Workflow State", "filters": [["name", "in", ["Draft", "Pending HQ Review", "Approved", "Rejected"]]]},
     {"dt": "Workflow", "filters": [["name", "in", ["Return Intake Approval"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si", "Delivery Note-custom_shopify_fulfilled", "Delivery Note-custom_awb_shortfall", "Delivery Note-custom_box_count"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si", "Delivery Note-custom_shopify_fulfilled", "Delivery Note-custom_awb_shortfall", "Delivery Note-custom_box_count", "Delivery Note-custom_prepare_batch"]]]},
 ]
 
 # Document Events
@@ -53,6 +53,12 @@ scheduler_events = {
         # Ops Google Sheet mirror — gated by ops_sheet_enabled; secrets in site config.
         "*/30 * * * *": [
             "solara_wms.wms.d2c_ops_sheet.push_ops_sheet",
+        ],
+        # Layer-3 leak monitor — reconcile every order -> dispatch, post the
+        # categorized report to Slack. Gated by completeness_report_enabled
+        # (default OFF); 11:00 + 18:00 site time (IST).
+        "0 11,18 * * *": [
+            "solara_wms.wms.d2c_fulfillment.d2c_completeness_report",
         ],
     },
 }

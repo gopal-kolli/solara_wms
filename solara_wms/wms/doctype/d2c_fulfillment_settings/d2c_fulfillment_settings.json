@@ -46,6 +46,7 @@
   "combine_categories",
   "combine_piece_cap",
   "max_order_lines",
+  "completeness_report_enabled",
   "actions_section",
   "run_release_now",
   "prepare_now"
@@ -229,9 +230,16 @@
   {
    "fieldname": "max_order_lines",
    "fieldtype": "Int",
-   "label": "Max Order Lines (Phase 1)",
+   "label": "Max Order Lines (deprecated)",
    "default": "6",
-   "description": "Orders with more distinct item lines than this are too complex to trust single-box stacking and stay on the manual sheet (jumbo guard). 0 = use default (6)."
+   "description": "DEPRECATED 2026-07-23: the jumbo guard now counts box-bearing parcels vs Max Release Parcels, not distinct line count. This field is no longer read by the release code."
+  },
+  {
+   "fieldname": "completeness_report_enabled",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Post Completeness Monitor",
+   "description": "Layer-3 leak guarantee. When ON, at 11:00 + 18:00 IST reconcile every Shopify order (last 4 days) against dispatch and post a categorized 'orders not on their way' report to the wave Slack channel. Default OFF; turn on after validating the report content once."
   },
   {
    "fieldname": "actions_section",

@@ -50,7 +50,7 @@ import os
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, get_datetime, now_datetime, nowdate, add_days, getdate
+from frappe.utils import cint, flt, get_datetime, now_datetime, nowdate, add_days, add_to_date, getdate
 
 from solara_wms.wms.utils import get_available_qty
 
@@ -101,6 +101,12 @@ RELEASABLE_STATUSES = ("To Deliver and Bill", "To Deliver")
 # needs its own box (airfryer + a cookware piece = 2 boxes, per ops).
 DEFAULT_COMBINABLE_CATEGORIES = ("Cookware", "Drinkware")
 DEFAULT_COMBINE_PIECE_CAP = 6  # pieces of one combinable category per carton
+
+# Leak-prevention monitors (Layer 1 wave aging note + Layer 3 completeness report).
+GOLIVE_DATE = "2026-07-16"      # D2C automation go-live; never reconcile before this
+COMPLETENESS_WINDOW_DAYS = 4    # reconcile Shopify orders from the last N days
+COMPLETENESS_GRACE_HOURS = 12   # skip orders newer than this (still in normal flow)
+AGING_UNSHIPPED_HOURS = 12      # wave note flags orders released > this and still unshipped
 
 
 # ─── SETTINGS HELPERS ─────────────────────────────────────────────
@@ -1425,8 +1431,24 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     batch.flags.ignore_permissions = True
     batch.insert(ignore_permissions=True)
     _attach_outputs_to_batch(batch.name, result)
+    # Traceability: point each printed DN back to this batch (custom_prepare_batch)
+    # so a delivery note traces straight to the wave / pick-list / labels it went
+    # out on. Read-only stamp; never bumps the DN's modified time.
+    for d in dns:
+        try:
+            frappe.db.set_value("Delivery Note", d["name"], "custom_prepare_batch",
+                                batch.name, update_modified=False)
+        except Exception:
+            pass
     frappe.db.commit()
     summary["batch"] = batch.name
+    # Layer 1: aging tripwire — orders released >12h ago still not printed/dispatched.
+    try:
+        summary["aging"] = _aging_unshipped(now_datetime())
+    except Exception:
+        summary["aging"] = []
+        _log("D2C Aging", "aging check failed (batch/notify unaffected)\n{0}".format(
+            frappe.get_traceback()))
     _email_batch(batch.name, summary, settings)
     _slack_batch(batch.name, summary, settings)
     return summary
@@ -1544,6 +1566,15 @@ def _slack_batch(batch_name, summary, settings):
     if missing:
         lines.append(":warning: {0} order(s) awaiting a label at prepare time — "
                      "they appear in the next wave once labelled.".format(len(missing)))
+    # Layer 1 aging tripwire — orders released >12h ago and STILL not shipped. Unlike
+    # 'awaiting a label' (normal same-wave in-flight), these are at risk of slipping;
+    # surface them so the floor manually checks (the completeness monitor + recovery
+    # net are the automated backstops).
+    aging = summary.get("aging") or []
+    if aging:
+        shown = ", ".join(aging[:10]) + (" …" if len(aging) > 10 else "")
+        lines.append(":rotating_light: {0} order(s) released >{1}h ago still NOT shipped — "
+                     "please check manually: {2}".format(len(aging), AGING_UNSHIPPED_HOURS, shown))
     try:
         resp = requests.post(webhook, json={"text": "\n".join(lines)}, timeout=15)
         _log("D2C Prepare Slack", "batch {0}: slack {1} ({2})".format(
@@ -1851,3 +1882,200 @@ def _save_output_file(file_name, content):
     f.insert(ignore_permissions=True)
     frappe.db.commit()
     return f.file_url
+
+
+# ─── LEAK-PREVENTION MONITORS (Layer 1 wave aging note + Layer 3 report) ───
+
+def _chunk(seq, n=90):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
+def _post_slack(settings, text, tag="D2C Slack"):
+    """Post `text` to the wave Slack Incoming Webhook (get_password). Best-effort;
+    returns True on HTTP 200. Shared by the wave notification and this monitor."""
+    try:
+        webhook = (settings.get_password("wave_slack_webhook", raise_exception=False) or "").strip()
+    except Exception:
+        webhook = ""
+    if not webhook:
+        return False
+    try:
+        import requests
+        resp = requests.post(webhook, json={"text": text}, timeout=15)
+        _log(tag, "slack {0} ({1})".format(
+            "posted" if resp.status_code == 200 else "FAILED", resp.status_code))
+        return resp.status_code == 200
+    except Exception:
+        _log(tag, "slack post failed\n{0}".format(frappe.get_traceback()))
+        return False
+
+
+def _aging_unshipped(on_datetime, hours=None):
+    """LAYER 1 — fast wave-time tripwire. Defer DNs released > `hours` ago (within
+    the completeness window) that are STILL not printed in a label_found=1 batch and
+    not dispatch-scanned. These are at risk of slipping; the wave note surfaces the
+    order numbers so the floor checks manually. Returns a list of order numbers."""
+    hours = AGING_UNSHIPPED_HOURS if hours is None else hours
+    on_date = getdate(on_datetime)
+    cutoff = add_to_date(get_datetime(on_datetime), hours=-hours)
+    start = add_days(on_date, -COMPLETENESS_WINDOW_DAYS)
+    dns = frappe.get_all(
+        "Delivery Note",
+        filters={"custom_d2c_defer_si": 1, "docstatus": 1,
+                 "creation": ["between", [str(start), cutoff]]},
+        fields=["name", "shopify_order_number"], limit_page_length=0)
+    if not dns:
+        return []
+    printed = _batched_dn_names(on_date, COMPLETENESS_WINDOW_DAYS)
+    scanned = {r.delivery_note for r in frappe.get_all(
+        "D2C Dispatch Scan", fields=["delivery_note"], limit_page_length=0)}
+    return [d.shopify_order_number or d.name for d in dns
+            if d.name not in printed and d.name not in scanned]
+
+
+def _completeness_buckets(on_datetime):
+    """LAYER 3 core — reconcile every Shopify order in the rolling window against
+    its terminal dispatch state, categorized by WHERE it is stuck. Frappe-native
+    mirror of scripts/d2c_completeness_monitor.py. Returns {category: [(order,
+    value, note)]}. Stage-agnostic: catches a miss no matter which stage failed."""
+    win_start = str(add_days(getdate(on_datetime), -COMPLETENESS_WINDOW_DAYS))
+    win_end = add_to_date(get_datetime(on_datetime), hours=-COMPLETENESS_GRACE_HOURS)
+    sos = frappe.get_all(
+        "Sales Order",
+        filters={"shopify_order_id": ["is", "set"], "creation": ["between", [win_start, win_end]]},
+        fields=["shopify_order_id", "shopify_order_number", "creation", "transaction_date",
+                "grand_total", "custom_shopify_hold", "custom_order_type"],
+        limit_page_length=0)
+    soids = [s.shopify_order_id for s in sos]
+
+    dn_by_oid = {}
+    for ch in _chunk(soids):
+        for d in frappe.get_all(
+                "Delivery Note", filters={"shopify_order_id": ["in", ch], "docstatus": 1},
+                fields=["name", "shopify_order_id", "awb_number", "custom_awb_shortfall"],
+                limit_page_length=0):
+            dn_by_oid.setdefault(d.shopify_order_id, []).append(d)
+
+    printed = set()
+    for b in frappe.get_all("D2C Prepare Batch", filters={"date": [">=", GOLIVE_DATE]},
+                            fields=["name"], limit_page_length=0):
+        for r in frappe.get_all(
+                "D2C Prepare Batch DN",
+                filters={"parent": b.name, "parenttype": "D2C Prepare Batch", "label_found": 1},
+                fields=["delivery_note"], limit_page_length=0):
+            printed.add(r.delivery_note)
+    scanned = {r.delivery_note for r in frappe.get_all(
+        "D2C Dispatch Scan", fields=["delivery_note"], limit_page_length=0)}
+
+    all_names = [d.name for lst in dn_by_oid.values() for d in lst]
+    labelled = set()
+    for ch in _chunk(all_names):
+        for f in frappe.get_all(
+                "File",
+                filters={"attached_to_doctype": "Delivery Note", "attached_to_name": ["in", ch],
+                         "file_name": ["like", "d2c-label%"]},
+                fields=["attached_to_name"], limit_page_length=0):
+            labelled.add(f.attached_to_name)
+
+    buckets = {}
+
+    def add(cat, s, note=""):
+        buckets.setdefault(cat, []).append((s.shopify_order_number, flt(s.grand_total), note))
+
+    for s in sos:
+        dns = dn_by_oid.get(s.shopify_order_id, [])
+        if dns:
+            dn = dns[0]
+            if dn.name in scanned:
+                add("dispatched_ok", s)
+            elif dn.custom_awb_shortfall:
+                add("ALARM_awb_shortfall_held", s, dn.name)
+            elif not dn.awb_number:
+                add("ALARM_no_awb_cp_refused", s, dn.name)
+            elif dn.name in printed:
+                add("printed_awaiting_dispatch", s)
+            elif dn.name in labelled:
+                add("ALARM_stranded_labelled_unprinted", s, dn.name)
+            else:
+                add("pending_label", s)
+            continue
+        age_h = (get_datetime(on_datetime) - get_datetime(s.creation)).total_seconds() / 3600.0
+        if cint(s.custom_shopify_hold):
+            add("info_on_hold_gokwik" if age_h < 48 else "ALARM_hold_stuck_48h", s)
+        elif str(s.transaction_date) < GOLIVE_DATE:
+            add("ALARM_old_txn_wont_release", s, "txn " + str(s.transaction_date))
+        elif (s.custom_order_type or "") == "PPCOD":
+            add("info_ppcod_on_sheet", s)
+        else:
+            add("nodn_needs_release_check", s)
+    return buckets
+
+
+_COMPLETENESS_ALARM = [
+    ("ALARM_stranded_labelled_unprinted", "Labelled, never printed (STRANDED)"),
+    ("ALARM_no_awb_cp_refused", "Released, no AWB (CP refused: unserviceable/virtual)"),
+    ("ALARM_awb_shortfall_held", "AWB shortfall — held (fewer AWBs than boxes)"),
+    ("ALARM_old_txn_wont_release", "Old-dated re-sync — won't auto-release"),
+    ("ALARM_hold_stuck_48h", "On-hold >48h — GoKwik never confirmed"),
+]
+_COMPLETENESS_INFO = [
+    ("nodn_needs_release_check", "no-DN release check"),
+    ("info_on_hold_gokwik", "on-hold (GoKwik)"),
+    ("info_ppcod_on_sheet", "PPCOD on sheet"),
+    ("pending_label", "awaiting label"),
+    ("printed_awaiting_dispatch", "printed, awaiting scan"),
+    ("dispatched_ok", "dispatched"),
+]
+
+
+def _render_completeness_slack(buckets, on_datetime):
+    total = sum(len(v) for v in buckets.values())
+    alarm_n = sum(len(buckets.get(k, [])) for k, _ in _COMPLETENESS_ALARM)
+    head = ":rotating_light:" if alarm_n else ":white_check_mark:"
+    lines = [
+        "{0} *D2C Completeness Monitor* — {1} IST".format(
+            head, get_datetime(on_datetime).strftime("%d %b %H:%M")),
+        "Last {0}d up to −{1}h · {2} orders reconciled · *{3} need action*".format(
+            COMPLETENESS_WINDOW_DAYS, COMPLETENESS_GRACE_HOURS, total, alarm_n),
+        "",
+        "*ALARM — leaks to clear:*",
+    ]
+    if not alarm_n:
+        lines.append("  _none — every order dispatched or legitimately in-flight_ :tada:")
+    for key, label in _COMPLETENESS_ALARM:
+        rows = buckets.get(key, [])
+        if not rows:
+            continue
+        val = sum(r[1] for r in rows)
+        sample = ", ".join(r[0] for r in rows[:8]) + (" …" if len(rows) > 8 else "")
+        lines.append("  • *{0}* · ₹{1:,.0f} — {2}".format(len(rows), val, label))
+        lines.append("      {0}".format(sample))
+    info = [(k, l) for k, l in _COMPLETENESS_INFO if buckets.get(k)]
+    if info:
+        lines.append("")
+        lines.append("_Informational: " + " · ".join(
+            "{0} {1}".format(len(buckets[k]), l) for k, l in info) + "_")
+    return "\n".join(lines)
+
+
+@frappe.whitelist()
+def d2c_completeness_report():
+    """LAYER 3 — scheduler (2×/day) + button. Reconcile the window and post the
+    categorized leak report to the wave Slack webhook. Gated by
+    completeness_report_enabled (default OFF). Best-effort; never raises into the
+    scheduler. Returns a small summary dict for the Run-Now button."""
+    settings = _settings()
+    if not cint(settings.get("completeness_report_enabled")):
+        return {"skipped": "completeness_report_enabled is off"}
+    try:
+        now = now_datetime()
+        buckets = _completeness_buckets(now)
+        text = _render_completeness_slack(buckets, now)
+        posted = _post_slack(settings, text, tag="D2C Completeness")
+        alarm = sum(len(buckets.get(k, [])) for k, _ in _COMPLETENESS_ALARM)
+        return {"posted": posted, "alarm": alarm,
+                "reconciled": sum(len(v) for v in buckets.values())}
+    except Exception:
+        _log("D2C Completeness", "report failed\n{0}".format(frappe.get_traceback()))
+        return {"error": True}

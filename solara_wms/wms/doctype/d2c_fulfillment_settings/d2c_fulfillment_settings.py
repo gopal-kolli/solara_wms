@@ -7,8 +7,11 @@ from solara_wms.wms import d2c_fulfillment
 class D2CFulfillmentSettings(Document):
     @frappe.whitelist()
     def run_release_now(self):
-        """Manual trigger for the release job (respects Dry Run + all gates)."""
-        return d2c_fulfillment.release_d2c_shipments()
+        """Manual pull — releases up to Max Orders Per Run oldest orders on demand.
+        Bypasses the release_enabled pause + cutoff hour (explicit human action);
+        respects Dry Run + every per-order gate. Use when auto-release is paused
+        and the warehouse has capacity to ship a batch."""
+        return d2c_fulfillment.release_d2c_shipments(force=True)
 
     @frappe.whitelist()
     def fetch_labels_now(self):

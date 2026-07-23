@@ -396,28 +396,35 @@ def _log(title, message):
 
 # ─── RELEASE JOB: eligible SHP SO → Delivery Note ─────────────────
 
-def release_d2c_shipments():
+def release_d2c_shipments(force=False):
     """Scheduler entry (*/15). Auto-create + submit Delivery Notes for eligible
     single-AWB Shopify Sales Orders. Idempotent, gated, per-order isolated.
+
+    force=True is the MANUAL pull (Run Release Now button): it bypasses the
+    release_enabled pause + the cutoff-hour gate so the warehouse can release a
+    batch on demand while auto-release is paused. Every per-order gate and Dry Run
+    still apply, and it still releases oldest-first up to Max Orders Per Run.
 
     The whole body is wrapped so a defect here can NEVER propagate into the
     shared scheduler runner (protects every other app's jobs, incl. Amazon DF)."""
     try:
-        return _release_d2c_shipments()
+        return _release_d2c_shipments(force=force)
     except Exception:
         frappe.db.rollback()
         _log("D2C Release", "FATAL (swallowed): " + frappe.get_traceback())
         return None
 
 
-def _release_d2c_shipments():
+def _release_d2c_shipments(force=False):
     settings = _settings()
-    if not cint(settings.get("release_enabled")):
+    # force = explicit human pull (Run Release Now); bypasses the auto-release
+    # pause so the warehouse can release a batch on demand.
+    if not force and not cint(settings.get("release_enabled")):
         return
 
     # Optional hard stop after the daily cutoff hour (default: ship immediately,
-    # so this is off unless enforce_cutoff_on_release is set).
-    if cint(settings.get("enforce_cutoff_on_release")):
+    # so this is off unless enforce_cutoff_on_release is set). Manual pulls ignore it.
+    if not force and cint(settings.get("enforce_cutoff_on_release")):
         cutoff = cint(settings.get("cutoff_hour")) or 16
         if get_datetime(now_datetime()).hour >= cutoff:
             return

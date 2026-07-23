@@ -24,9 +24,9 @@ Pipeline (all gated by the `D2C Fulfillment Settings` single doctype):
         permanent private File, so the combined-PDF step never races URL expiry.
           │
       prepare_todays_shipments()  warehouse button ← THIS FILE
-        BATCH-AWARE: each click covers only DNs not in a prior D2C Prepare
-        Batch for the date (re-clicks can't re-print packed orders); every
-        batch is recorded with its DN list and is reprintable exactly.
+        BATCH-AWARE: each click covers only DNs not successfully printed in a
+        prior D2C Prepare Batch; DNs still awaiting labels remain eligible for
+        the next wave. Every printed batch is recorded and reprintable exactly.
           ├─ Pick List PDF  (SKU-summary section + per-order pack section)
           └─ Combined Labels PDF (attached label PDFs merged in pack sequence)
 
@@ -1272,9 +1272,9 @@ def _prepare_lookback(settings):
 
 def _todays_d2c_dns(settings, on_date):
     """ALL submitted D2C DNs from (on_date - prepare_lookback) through on_date
-    (labelled or not — unlabelled ones surface in missing_labels rather than
-    silently vanishing), in a stable pack sequence: batch identical single-SKU
-    orders together, then by AWB."""
+    (labelled or not). Prepare renders labels first and records only successfully
+    rendered DNs in the batch; unlabelled DNs remain unbatched for the next wave.
+    Stable pack sequence: batch identical single-SKU orders together, then by AWB."""
     start = add_days(on_date, -_prepare_lookback(settings))
     filters = {
         "shopify_order_id": ["is", "set"],
@@ -1315,8 +1315,9 @@ def _todays_d2c_dns(settings, on_date):
 
 
 def _batched_dn_names(on_date, lookback=1):
-    """DNs already included in a prior prepare batch within the rolling window.
-    Window matches _todays_d2c_dns so a DN batched yesterday can't reprint today."""
+    """DNs successfully printed in a prior batch within the rolling window.
+    A historical child row with label_found=0 did not appear in that batch's
+    labels PDF and must not suppress recovery in a later wave."""
     start = add_days(on_date, -lookback)
     batches = frappe.get_all("D2C Prepare Batch",
                              filters={"date": ["between", [start, on_date]]},
@@ -1326,11 +1327,17 @@ def _batched_dn_names(on_date, lookback=1):
     rows = frappe.get_all(
         "D2C Prepare Batch DN",
         filters={"parent": ["in", [b.name for b in batches]],
-                 "parenttype": "D2C Prepare Batch"},
+                 "parenttype": "D2C Prepare Batch",
+                 "label_found": 1},
         fields=["delivery_note"],
         limit_page_length=0,
     )
     return {r.delivery_note for r in rows}
+
+
+def _label_identity(dn):
+    """Stable identifier used by label rendering and missing-label filtering."""
+    return dn.get("shopify_order_number") or dn.get("shopify_order_id") or dn["name"]
 
 
 @frappe.whitelist()
@@ -1347,7 +1354,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
 
     all_dns = _todays_d2c_dns(settings, on_date)
     already = _batched_dn_names(on_date, _prepare_lookback(settings))
-    dns = [d for d in all_dns if d["name"] not in already]
+    candidates = [d for d in all_dns if d["name"] not in already]
 
     batch_no = len(frappe.get_all("D2C Prepare Batch", filters={"date": on_date},
                                   limit_page_length=0)) + 1
@@ -1355,14 +1362,14 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         "date": str(on_date),
         "batch_no": batch_no,
         "run_type": run_type if run_type in ("Ad-hoc", "Wave") else "Ad-hoc",
-        "orders": len(dns),
+        "orders": 0,
         "already_prepared": len(already),
-        "units": sum(flt(i.qty) for d in dns for i in d["items"]),
+        "units": 0,
         "missing_labels": [],
         "pick_list_url": None,
         "labels_pdf_url": None,
     }
-    if not dns:
+    if not candidates:
         summary["message"] = (
             "No NEW D2C Delivery Notes for {0} — {1} order(s) already covered by "
             "earlier batches. Use reprint_batch to regenerate a past batch."
@@ -1370,13 +1377,30 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         return summary
 
     # Generation stamp MMDDHHMM (e.g. 07120900) — names the files and traces the
-    # batch to the moment it was made. Each DN (and therefore each AWB) is in
-    # exactly one batch, so no AWB can appear in two files.
+    # batch to the moment it was made. Only successfully merged labels are
+    # recorded in the child table, so each printed AWB is blocked from later
+    # batches while an unresolved label remains eligible.
     stamp = now_datetime().strftime("%m%d%H%M")
     summary["batch_stamp"] = stamp
 
-    result = _render_batch_files(dns, on_date, batch_no, stamp)
+    # Render labels first. Only DNs whose complete label PDF was successfully
+    # read and merged are allowed into the pick list or batch child table. This
+    # is the hard boundary that makes concurrent fetch/prepare scheduler jobs
+    # safe: a label that arrives seconds late remains unbatched and is retried
+    # in the next wave instead of being permanently marked as prepared.
+    result = _render_batch_files(candidates, on_date, batch_no, stamp)
+    missing = set(result["missing_labels"])
+    dns = [d for d in candidates if _label_identity(d) not in missing]
     summary.update(result)
+    summary["orders"] = len(dns)
+    summary["units"] = sum(flt(i.qty) for d in dns for i in d["items"])
+
+    if not dns:
+        summary["message"] = (
+            "No label-ready D2C Delivery Notes for {0} — {1} order(s) are still "
+            "awaiting complete labels and remain eligible for the next wave."
+            .format(on_date, len(result["missing_labels"])))
+        return summary
 
     # Courier split (parcels = labels per carrier) for the email/Slack handover note
     csplit = {}
@@ -1404,8 +1428,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
             {"delivery_note": d["name"],
              "shopify_order_id": d.get("shopify_order_number") or d.get("shopify_order_id"),
              "awb_number": d.get("awb_number"),
-             "label_found": 0 if (d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"])
-                                 in result["missing_labels"] else 1}
+             "label_found": 1}
             for d in dns
         ],
     })
@@ -1601,17 +1624,24 @@ def reprint_batch(batch_name):
     # Reuse the original stamp so a reprint regenerates the SAME filenames.
     stamp = batch.get("batch_stamp") or now_datetime().strftime("%m%d%H%M")
     result = _render_batch_files(dns, batch.date, batch.batch_no, stamp)
-    return {"batch": batch.name, "batch_stamp": stamp, "orders": len(dns), **result}
+    return {"batch": batch.name, "batch_stamp": stamp,
+            "orders": result["labelled"], "requested_orders": len(dns), **result}
 
 
 def _render_batch_files(dns, on_date, batch_no, stamp):
-    pick_url = _build_pick_list_pdf(dns, on_date, batch_no, stamp)
+    # Labels are the admission control for a batch. Build them first, then make
+    # the pick list from the exact same successfully-labelled subset so the two
+    # PDFs can never disagree and an unlabelled DN is never marked prepared.
     labels_url, missing = _build_combined_labels_pdf(dns, on_date, batch_no, stamp)
+    missing_set = set(missing)
+    printable = [d for d in dns if _label_identity(d) not in missing_set]
+    pick_url = (_build_pick_list_pdf(printable, on_date, batch_no, stamp)
+                if printable else None)
     return {
         "pick_list_url": pick_url,
         "labels_pdf_url": labels_url,
         "missing_labels": missing,
-        "labelled": len(dns) - len(missing),
+        "labelled": len(printable),
     }
 
 
@@ -1780,9 +1810,13 @@ def _build_combined_labels_pdf(dns, on_date, batch_no, stamp):
     missing = []
     first_err = None
     for d in dns:
-        content = _label_pdf_bytes(d["name"], d.get("shipping_label"))
+        # Prepare is intentionally network-free. The attached d2c-label File is
+        # the fetch job's durable proof that every parcel label is present; using
+        # a DN's live URL here can race expiry and can expose only parcel 1 of a
+        # multi-box order.
+        content = _read_attached_label(d["name"])
         if not content:
-            missing.append(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"])
+            missing.append(_label_identity(d))
             continue
         try:
             # add_page loop is version-agnostic (works where PdfWriter.append
@@ -1792,7 +1826,7 @@ def _build_combined_labels_pdf(dns, on_date, batch_no, stamp):
         except Exception as e:
             if first_err is None:
                 first_err = "{0}: {1}".format(d["name"], str(e)[:160])
-            missing.append(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"])
+            missing.append(_label_identity(d))
 
     if first_err:
         _log("D2C Prepare", "label merge first error — " + first_err)

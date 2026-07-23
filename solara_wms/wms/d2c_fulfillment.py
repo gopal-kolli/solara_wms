@@ -101,7 +101,6 @@ RELEASABLE_STATUSES = ("To Deliver and Bill", "To Deliver")
 # needs its own box (airfryer + a cookware piece = 2 boxes, per ops).
 DEFAULT_COMBINABLE_CATEGORIES = ("Cookware", "Drinkware")
 DEFAULT_COMBINE_PIECE_CAP = 6  # pieces of one combinable category per carton
-DEFAULT_MAX_ORDER_LINES = 6    # jumbo guard: more distinct lines than this -> not Phase 1
 
 
 # ─── SETTINGS HELPERS ─────────────────────────────────────────────
@@ -174,12 +173,6 @@ def _combinable_categories(settings):
 
 def _combine_piece_cap(settings):
     return cint(settings.get("combine_piece_cap")) or DEFAULT_COMBINE_PIECE_CAP
-
-
-def _max_order_lines(settings):
-    # 0 in settings means "use default"; we always want some jumbo ceiling.
-    val = cint(settings.get("max_order_lines"))
-    return val if val > 0 else DEFAULT_MAX_ORDER_LINES
 
 
 def _split_combos(settings):
@@ -290,17 +283,19 @@ def _order_parcels(so, box_map, settings):
 
 
 def _order_box_count(so, box_map, settings):
-    """Number of physical boxes this order ships in = number of parcels the split
-    would produce (see _order_parcels), floored at 1. == 1 means single-AWB
-    (Phase 1); >= 2 is multi-box.
+    """Number of physical boxes this order ships in = number of BOX-BEARING
+    parcels the split would produce (see _order_parcels), floored at 1. == 1 means
+    single-AWB (Phase 1); >= 2 is multi-box.
 
-    Jumbo guard: an order with more distinct lines than max_order_lines is too
-    complex to trust the stacking assumptions (validated on a 7-line triply order
-    that shipped 2 AWBs) — force >= 2 (sentinel) so it stays on the sheet and is
-    never auto-split."""
-    lines = [it for it in so.items if cint(it.get("qty")) > 0]
-    if len(lines) > _max_order_lines(settings):
-        return 2  # jumbo sentinel — not a trustworthy parcel quantity
+    Complexity is measured by box-bearing PARCELS, not distinct line count: 0-box
+    nestable accessories and virtual (warranty/gift) lines ride inside a parent
+    parcel and never inflate this number — so an order like AFO+juicer combo + 5
+    warranty/accessory lines is still just its 2 real boxes. The old line-count
+    'jumbo guard' mis-fired on exactly these orders (many 0-box riders), routing
+    2-4 box orders to the manual sheet. The release gate now caps on
+    max_release_parcels instead; anything beyond that stays on the sheet, and the
+    AWB-shortfall guard backstops dispatch, so a mis-estimate is HELD, never
+    under-shipped."""
     return len(_order_parcels(so, box_map, settings))
 
 
@@ -315,14 +310,12 @@ def _fully_covered_by_known_combos(so, box_map, settings):
       2. that combo has exactly 2 children (matches the DN's 2-AWB storage cap —
          3+ children would be minted-and-orphaned);
       3. every OTHER line contributes 0 boxes (nestable ride-along only — a second
-         appliance / cookware stack would need AWBs the CP combo branch won't mint);
-      4. not tripped by the jumbo guard.
+         appliance / cookware stack would need AWBs the CP combo branch won't mint).
     When all hold, box_count == 2 and CP produces exactly those 2 AWBs; the AWB
-    guard still backstops it before dispatch."""
+    guard still backstops it before dispatch. Line count is irrelevant here — any
+    number of 0-box nestable riders leaves the order at its single combo's 2 boxes."""
     combos = _split_combos(settings)
     live = [it for it in so.items if cint(it.get("qty")) > 0]
-    if len(live) > _max_order_lines(settings):
-        return False
     combo_lines = [it for it in live if (it.get("item_code") or "").upper() in combos]
     if len(combo_lines) != 1:
         return False
@@ -566,25 +559,22 @@ def _run_release(settings, dry_run=False):
             # A multi-box order releases if EITHER:
             #  (a) it is fully covered by a known-splittable combo the ClickPost
             #      script 2-parcels natively (release_known_combos), or
-            #  (b) PHASE 2a: its parcel plan is EXACTLY 2 parcels and the
-            #      release_multibox_2p toggle is ON — the plan is stamped on the
-            #      DN and the ClickPost script executes it (one AWB per parcel,
-            #      value-weighted COD). Jumbo (box_count sentinel from the
-            #      line-count guard) never has a trustworthy plan, and 3+ parcel
-            #      orders stay on the manual sheet.
+            #  (b) PHASE 2a/2b: its parcel plan is 2..max_release_parcels parcels and
+            #      release_multibox_2p is ON — the plan is stamped on the DN and the
+            #      ClickPost script executes it (one AWB per box-bearing parcel,
+            #      value-weighted COD). Orders needing MORE parcels than the cap stay
+            #      on the manual sheet. Complexity is bounded by box-bearing parcels,
+            #      not line count, so 0-box riders never force an order off the path.
             covered_by_combo = (cint(settings.get("release_known_combos"))
                                 and _fully_covered_by_known_combos(so, box_map, settings))
             max_parcels = cint(settings.get("max_release_parcels")) or 2
             if covered_by_combo or cint(settings.get("release_multibox_2p")):
-                live_lines = [it for it in so.items if cint(it.get("qty")) > 0]
-                if len(live_lines) <= _max_order_lines(settings):
-                    parcels = _order_parcels(so, box_map, settings)
-                    # 2-box (Phase 2a) OR up to max_release_parcels (Phase 2b).
-                    # box_count must equal the parcel count (never under-ship) and
-                    # each parcel gets its own AWB; the plan is stamped so labels
-                    # list every parcel's full contents.
-                    if 2 <= len(parcels) <= max_parcels and box_count == len(parcels):
-                        parcel_plan = _parcel_plan_for_dn(so, parcels)
+                parcels = _order_parcels(so, box_map, settings)
+                # Up to max_release_parcels boxes auto-release: one AWB per box-bearing
+                # parcel; box_count == parcel count (never under-ship) and the plan is
+                # stamped so labels list every parcel's full contents.
+                if 2 <= len(parcels) <= max_parcels and box_count == len(parcels):
+                    parcel_plan = _parcel_plan_for_dn(so, parcels)
             if not covered_by_combo and not parcel_plan:
                 res["skipped_multibox"] += 1
                 continue

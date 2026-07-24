@@ -47,6 +47,7 @@
   "combine_piece_cap",
   "max_order_lines",
   "completeness_report_enabled",
+  "dispatch_stamp_enabled",
   "actions_section",
   "run_release_now",
   "prepare_now"
@@ -240,6 +241,13 @@
    "default": "0",
    "label": "Post Completeness Monitor",
    "description": "Layer-3 leak guarantee. When ON, at 11:00 + 18:00 IST reconcile every Shopify order (last 4 days) against dispatch and post a categorized 'orders not on their way' report to the wave Slack channel. Default OFF; turn on after validating the report content once."
+  },
+  {
+   "fieldname": "dispatch_stamp_enabled",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Auto-stamp Dispatched from Courier Tracking",
+   "description": "When ON, a periodic job polls ClickPost and stamps Delivery Note custom_dispatched=1 as soon as the courier records a first scan (parcel left the warehouse) — the same flag the manual dispatch-scan sets. Makes 'labeled vs shipped' reliable without needing every parcel scanned. ElasticRun (no ClickPost tracking) stays on the manual scan. Default OFF until validated."
   },
   {
    "fieldname": "actions_section",

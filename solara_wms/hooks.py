@@ -60,6 +60,11 @@ scheduler_events = {
         "0 11,18 * * *": [
             "solara_wms.wms.d2c_fulfillment.d2c_completeness_report",
         ],
+        # Auto-stamp custom_dispatched from courier first-scan. Gated by
+        # dispatch_stamp_enabled (default OFF); twice hourly.
+        "5,35 * * * *": [
+            "solara_wms.wms.d2c_dispatch.stamp_dispatched",
+        ],
     },
 }
 

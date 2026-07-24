@@ -12,7 +12,11 @@ duplicate block). When every parcel of an order is scanned, the DN is stamped
 custom_dispatched. Re-scanning a parcel returns a hard "already dispatched"
 so it is never shipped twice.
 """
+import json
 import re
+import time
+import urllib.parse
+import urllib.request
 
 import frappe
 from frappe.utils import cint, now_datetime, nowdate, add_days
@@ -145,3 +149,92 @@ def dispatch_summary():
                                 filters={"scanned_at": [">=", today0]},
                                 fields=["delivery_note"], distinct=True, limit_page_length=0))
     return {"scans_today": scans, "orders_today": orders}
+
+
+# ─── AUTO DISPATCH STAMP from courier tracking ───────────────────────────
+# Makes custom_dispatched a reliable "left our warehouse" flag WITHOUT needing the
+# manual scan: poll ClickPost, and the first courier scan (movement past manifest)
+# stamps the DN — the same field the manual scanner writes. ElasticRun has no
+# ClickPost tracking, so those stay un-stamped and rely on the manual scan.
+
+_CP_TRACK_KEY = "d3464616-bbd6-4874-919a-a7e8bd14d66f"   # = D2C Fulfillment Settings.clickpost_api_key
+_CP_ID = {"delhivery": 4, "bluedart": 5, "shadowfax": 9, "elasticrun": 1}
+_TRACK_BATCH = 15   # ClickPost track-order rejects >15 waybills/call (HTTP 400)
+# statuses that mean the parcel has NOT yet left the warehouse (still at manifest)
+_NOT_MOVED = ("order placed", "pickup pending", "manifest", "not picked",
+              "awaiting pickup", "label generated", "pickup failed")
+
+
+def _cp_track(awbs, cp_id):
+    """One ClickPost track-order call for up to _TRACK_BATCH same-courier AWBs.
+    Returns {awb: latest_status_text (lowercased)}. Failures/missing -> ''."""
+    try:
+        qs = urllib.parse.urlencode({"username": "solara", "key": _CP_TRACK_KEY,
+                                     "waybill": ",".join(awbs), "cp_id": cp_id})
+        req = urllib.request.Request("https://api.clickpost.in/api/v2/track-order/?" + qs,
+                                     headers={"User-Agent": "solara-dispatch-stamp/1.0"})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            res = (json.load(r).get("result") or {})
+        out = {}
+        for a in awbs:
+            ls = (res.get(a) or {}).get("latest_status") or {}
+            out[a] = (ls.get("clickpost_status_description") or ls.get("status") or "").lower()
+        return out
+    except Exception:
+        return {a: "" for a in awbs}
+
+
+def _tracking_says_dispatched(status):
+    """True only if courier tracking shows movement PAST manifest (a first scan):
+    delivered / in-transit / out-for-delivery / RTO / NDR. Empty ('' = NO_DATA,
+    e.g. ElasticRun) and manifest/pickup-pending are NOT dispatched."""
+    s = (status or "").strip().lower()
+    if not s or "cancel" in s:
+        return False
+    if any(k in s for k in _NOT_MOVED):
+        return False
+    return True
+
+
+@frappe.whitelist()
+def stamp_dispatched(days=14):
+    """Scheduled (gated by D2C Fulfillment Settings.dispatch_stamp_enabled, default
+    OFF): poll ClickPost for open D2C DNs (submitted, defer, AWB set,
+    custom_dispatched=0, posting_date within `days`) and stamp custom_dispatched=1
+    + custom_dispatched_at on any whose courier tracking shows a first scan.
+    Idempotent, best-effort, per-courier batched; never raises into the scheduler."""
+    try:
+        settings = frappe.get_single("D2C Fulfillment Settings")
+        if not cint(settings.get("dispatch_stamp_enabled")):
+            return {"skipped": "dispatch_stamp_enabled off"}
+        start = add_days(nowdate(), -cint(days))
+        dns = frappe.get_all(
+            "Delivery Note",
+            filters={"docstatus": 1, "custom_d2c_defer_si": 1, "custom_dispatched": 0,
+                     "awb_number": ["is", "set"], "posting_date": [">=", start]},
+            fields=["name", "awb_number", "courier_partner"], limit_page_length=0)
+        by_courier = {}
+        for d in dns:
+            by_courier.setdefault((d.get("courier_partner") or "").lower(), []).append(d)
+        now = now_datetime()
+        stamped = 0
+        for courier, rows in by_courier.items():
+            cp_id = _CP_ID.get(courier, 4)
+            for i in range(0, len(rows), _TRACK_BATCH):
+                chunk = rows[i:i + _TRACK_BATCH]
+                status = _cp_track([r["awb_number"] for r in chunk], cp_id)
+                for r in chunk:
+                    if _tracking_says_dispatched(status.get(r["awb_number"], "")):
+                        frappe.db.set_value(
+                            "Delivery Note", r["name"],
+                            {"custom_dispatched": 1, "custom_dispatched_at": now,
+                             "custom_dispatched_by": "clickpost-track"},
+                            update_modified=False)
+                        stamped += 1
+                frappe.db.commit()
+                time.sleep(0.3)
+        return {"checked": len(dns), "stamped": stamped}
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "D2C Dispatch Stamp failed")
+        return {"error": True}

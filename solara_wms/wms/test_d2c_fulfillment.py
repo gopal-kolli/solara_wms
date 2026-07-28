@@ -135,3 +135,48 @@ class TestBoxBearingParcelCount(TestCase):
 
     def test_virtual_only_floors_to_one(self):
         self.assertEqual(self._bc(_so(("WARRANTY-2YR-AFO", 1))), 1)
+
+
+class TestAwbCourierPairs(TestCase):
+    """Every parcel of a multi-box order must be discoverable from the DN.
+
+    The pick list prints one line per pair; printing only `awb_number` (as it did
+    until 2026-07-28) under-reported 251 AWBs in a single 1,309-order batch, so the
+    sheet disagreed with the labels PDF and the floor de-dup'd real parcels away.
+    """
+
+    def test_single_awb(self):
+        pairs = fulfillment._awb_courier_pairs(
+            {"awb_number": "SF3720543984OLL", "courier_partner": "Shadowfax"})
+        self.assertEqual([a for a, _ in pairs], ["SF3720543984OLL"])
+
+    def test_second_parcel_via_custom_awb_2(self):
+        pairs = fulfillment._awb_courier_pairs({
+            "awb_number": "SF3720543984OLL", "courier_partner": "Shadowfax",
+            "custom_awb_2": "SF3720543400OLL"})
+        self.assertEqual([a for a, _ in pairs],
+                         ["SF3720543984OLL", "SF3720543400OLL"])
+
+    def test_awb_list_json_is_authoritative(self):
+        pairs = fulfillment._awb_courier_pairs({
+            "awb_number": "IGNORED", "courier_partner": "Shadowfax",
+            "custom_awb_list": '[{"awb": "A1", "courier": "Shadowfax"},'
+                               ' {"awb": "A2", "courier": "Shadowfax"},'
+                               ' {"awb": "A3", "courier": "Delhivery"}]'})
+        self.assertEqual([a for a, _ in pairs], ["A1", "A2", "A3"])
+
+    def test_comma_separated_awb_number(self):
+        pairs = fulfillment._awb_courier_pairs(
+            {"awb_number": "A1,A2", "courier_partner": "Delhivery"})
+        self.assertEqual([a for a, _ in pairs], ["A1", "A2"])
+
+    def test_duplicates_collapse(self):
+        """Same waybill twice is ONE parcel — must not inflate the Box count."""
+        pairs = fulfillment._awb_courier_pairs({
+            "awb_number": "A1", "courier_partner": "Shadowfax",
+            "custom_awb_2": "A1"})
+        self.assertEqual([a for a, _ in pairs], ["A1"])
+
+    def test_no_awb_yet(self):
+        self.assertEqual(
+            fulfillment._awb_courier_pairs({"awb_number": None}), [])

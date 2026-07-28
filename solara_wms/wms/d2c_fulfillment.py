@@ -1347,12 +1347,21 @@ def _todays_d2c_dns(settings, on_date):
     # a parcel short.
     if frappe.get_meta("Delivery Note").has_field("custom_awb_shortfall"):
         filters["custom_awb_shortfall"] = 0
+    fields = ["name", "awb_number", "courier_partner", "customer",
+              "customer_name", "shopify_order_id", "shopify_order_number",
+              "shipping_label", "custom_box_count"]
+    # Multi-parcel AWBs. WITHOUT these the pick list can only print awb_number and
+    # silently under-reports every 2-4 box order (the labels PDF, which uses
+    # _awb_courier_pairs, shows them all) — the sheet then looks like it has
+    # "extra duplicate labels" and the floor de-dups real parcels away.
+    meta = frappe.get_meta("Delivery Note")
+    for f in ("custom_awb_2", "custom_courier_2", "custom_awb_list"):
+        if meta.has_field(f):
+            fields.append(f)
     dns = frappe.get_all(
         "Delivery Note",
         filters=filters,
-        fields=["name", "awb_number", "courier_partner", "customer",
-                "customer_name", "shopify_order_id", "shopify_order_number",
-                "shipping_label", "custom_box_count"],
+        fields=fields,
         limit_page_length=0,
     )
     for dn in dns:
@@ -1796,8 +1805,22 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
         return frappe.utils.escape_html(str(s or ""))
 
     # Drawn checkbox (span, not a unicode glyph — guaranteed to render in wkhtmltopdf)
-    chk = ("<span style='display:inline-block;width:8px;height:8px;"
-           "border:1px solid #222;margin-right:5px'></span>")
+    chk = ("<span style='display:inline-block;width:7px;height:7px;"
+           "border:1px solid #222;margin-right:4px'></span>")
+
+    def awb_cell(d):
+        """EVERY parcel's AWB, one per line, numbered when there is more than one.
+        Printing only awb_number here is what made multi-box orders look like they
+        had duplicate labels (labels PDF renders one page per AWB)."""
+        pairs = _awb_courier_pairs(d)
+        if not pairs:
+            return ""
+        if len(pairs) == 1:
+            return esc(pairs[0][0])
+        return "<br>".join(
+            "<b>{0}/{1}</b> {2}".format(i + 1, len(pairs), esc(a))
+            for i, (a, _c) in enumerate(pairs)
+        )
 
     pick_rows = "".join(
         "<tr><td>{0}</td><td>{1}</td><td style='text-align:right'>{2:g}</td></tr>".format(
@@ -1818,7 +1841,8 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
         return "<br>".join(parts)
 
     pack_rows = "".join(
-        ("<tr{shade}><td>{n}</td><td>{order}</td><td>{awb}</td><td>{courier}</td>"
+        ("<tr{shade}><td>{n}</td><td>{order}</td><td>{awb}</td>"
+         "<td style='text-align:center;font-weight:bold'>{boxes}</td>"
          "<td>{contents}</td>"
          "<td style='text-align:center;font-weight:bold'>{pieces:g}</td>"
          "<td></td><td></td></tr>").format(
@@ -1827,8 +1851,10 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
                   if sum(flt(l["qty"]) for l in d["_lines"]) > 1 else "",
             n=i + 1,
             order=esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]),
-            awb=esc(d.get("awb_number")),
-            courier=esc(d.get("courier_partner")),
+            awb=awb_cell(d),
+            # Cartons to hand the courier. Shown so a packer can never seal one box
+            # for an order whose label sheet carries two.
+            boxes=len(_awb_courier_pairs(d)) or cint(d.get("custom_box_count")) or 1,
             contents=content_cell(d),
             pieces=sum(flt(l["qty"]) for l in d["_lines"]))
         for i, d in enumerate(dns)
@@ -1854,21 +1880,23 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
         </tbody>
       </table>
 
-      <h3 style="margin:16px 0 4px">B. PACK + QC (by order — matches label sequence)</h3>
-      <p style="margin:0 0 4px;color:#555">Tick every box line as it goes in.
+      <h3 style="margin:12px 0 3px">B. PACK + QC (by order — matches label sequence)</h3>
+      <p style="margin:0 0 3px;color:#555">Tick every box line as it goes in.
          <b>Shaded row = multi-piece order → second person counts before sealing
          (SOP-PACK-QC), both initial.</b> Pieces = physical units that must be in
-         the parcel(s).</p>
-      <table border="1" cellspacing="0" cellpadding="4" width="100%"
-             style="border-collapse:collapse;table-layout:fixed;word-wrap:break-word">
+         the parcel(s). <b>Box = cartons to hand over; every AWB listed is a
+         SEPARATE parcel — hand over ALL of them.</b></p>
+      <table border="1" cellspacing="0" cellpadding="1" width="100%"
+             style="border-collapse:collapse;table-layout:fixed;word-wrap:break-word;
+                    font-size:8px;line-height:1.15">
         <colgroup>
-          <col style="width:4%"><col style="width:13%"><col style="width:17%">
-          <col style="width:9%"><col style="width:39%"><col style="width:6%">
-          <col style="width:6%"><col style="width:6%">
+          <col style="width:3%"><col style="width:12%"><col style="width:20%">
+          <col style="width:4%"><col style="width:45%"><col style="width:5%">
+          <col style="width:5.5%"><col style="width:5.5%">
         </colgroup>
         <thead><tr style="background:#f0f0f0">
-          <th>#</th><th align="left">Order</th><th align="left">AWB</th>
-          <th align="left">Courier</th><th align="left">Contents</th>
+          <th>#</th><th align="left">Order</th><th align="left">AWB(s)</th>
+          <th>Box</th><th align="left">Contents</th>
           <th>Pcs</th>
           <th>Packed</th><th>QC</th>
         </tr></thead>

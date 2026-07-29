@@ -180,3 +180,77 @@ class TestAwbCourierPairs(TestCase):
     def test_no_awb_yet(self):
         self.assertEqual(
             fulfillment._awb_courier_pairs({"awb_number": None}), [])
+
+
+class TestReprintBatchRelinks(TestCase):
+    """A reprint must be a DROP-IN replacement for the batch's existing links.
+
+    Before 2026-07-28 it attached nothing and re-pointed nothing, so:
+      - unchanged content reused the same file_url and the new UNATTACHED File doc
+        shadowed the attached one -> permission fell back to owner-only -> the
+        warehouse dashboard got 403 on a batch that had been working;
+      - changed content got a suffixed url nothing referenced -> the dashboard
+        kept serving the stale PDF.
+    """
+
+    @patch.object(fulfillment.frappe.db, "commit")
+    @patch.object(fulfillment.frappe.db, "set_value")
+    @patch.object(fulfillment, "_attach_outputs_to_batch")
+    @patch.object(fulfillment, "_render_batch_files")
+    @patch.object(fulfillment, "_todays_d2c_dns")
+    @patch.object(fulfillment, "_settings")
+    @patch.object(fulfillment.frappe, "get_doc")
+    def test_reprint_attaches_outputs_and_repoints_batch(
+        self, get_doc, settings, todays, render, attach, set_value, _commit
+    ):
+        batch = _Row(name="D2CB-2026-07-28-050", date="2026-07-28", batch_no=1,
+                     batch_stamp="07280902",
+                     delivery_notes=[_Row(delivery_note="DN-1")])
+        get_doc.return_value = batch
+        settings.return_value = {}
+        todays.return_value = [{"name": "DN-1", "shopify_order_number": "SOL1"}]
+        render.return_value = {
+            "pick_list_url": "/private/files/pick-NEW.pdf",
+            "labels_pdf_url": "/private/files/labels-NEW.pdf",
+            "missing_labels": [], "labelled": 1,
+        }
+
+        out = fulfillment.reprint_batch("D2CB-2026-07-28-050")
+
+        # the regenerated files must be linked to the batch (else 403 for everyone
+        # but Administrator)
+        attach.assert_called_once_with("D2CB-2026-07-28-050", render.return_value)
+        # ...and the batch must now POINT at them (else the dashboard proxy, which
+        # resolves via these fields, keeps serving the stale file)
+        set_value.assert_called_once()
+        args = set_value.call_args.args
+        self.assertEqual(args[0], "D2C Prepare Batch")
+        self.assertEqual(args[1], "D2CB-2026-07-28-050")
+        self.assertEqual(args[2], {"pick_list_url": "/private/files/pick-NEW.pdf",
+                                   "labels_pdf_url": "/private/files/labels-NEW.pdf"})
+        self.assertEqual(out["orders"], 1)
+
+    @patch.object(fulfillment.frappe.db, "commit")
+    @patch.object(fulfillment.frappe.db, "set_value")
+    @patch.object(fulfillment, "_attach_outputs_to_batch")
+    @patch.object(fulfillment, "_render_batch_files")
+    @patch.object(fulfillment, "_todays_d2c_dns")
+    @patch.object(fulfillment, "_settings")
+    @patch.object(fulfillment.frappe, "get_doc")
+    def test_reprint_does_not_blank_urls_when_nothing_rendered(
+        self, get_doc, settings, todays, render, attach, set_value, _commit
+    ):
+        """All labels pending -> no pick list. Must NOT null out the batch's
+        existing links, which would strand the floor with no sheet at all."""
+        batch = _Row(name="D2CB-2026-07-28-050", date="2026-07-28", batch_no=1,
+                     batch_stamp="07280902",
+                     delivery_notes=[_Row(delivery_note="DN-1")])
+        get_doc.return_value = batch
+        settings.return_value = {}
+        todays.return_value = [{"name": "DN-1", "shopify_order_number": "SOL1"}]
+        render.return_value = {"pick_list_url": None, "labels_pdf_url": None,
+                               "missing_labels": ["SOL1"], "labelled": 0}
+
+        fulfillment.reprint_batch("D2CB-2026-07-28-050")
+
+        set_value.assert_not_called()

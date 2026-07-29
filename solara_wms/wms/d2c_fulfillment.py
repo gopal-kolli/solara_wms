@@ -1714,6 +1714,28 @@ def reprint_batch(batch_name):
     # Reuse the original stamp so a reprint regenerates the SAME filenames.
     stamp = batch.get("batch_stamp") or now_datetime().strftime("%m%d%H%M")
     result = _render_batch_files(dns, batch.date, batch.batch_no, stamp)
+    # A reprint used to leave its output ORPHANED, which broke the batch it was
+    # meant to repair (2026-07-28):
+    #   * _save_output_file only sweeps prior same-name files that are UNATTACHED,
+    #     so the original stays and the reprint lands as a SECOND File doc.
+    #   * unchanged content (e.g. the labels PDF) reuses the same file_url, so the
+    #     new unattached doc SHADOWS the attached one — Frappe then resolves the
+    #     path to a file attached to nothing and permission falls back to
+    #     owner-only, i.e. 403 for the warehouse dashboard.
+    #   * changed content (e.g. a re-rendered pick list) gets a suffixed url that
+    #     nothing pointed at, so the dashboard kept serving the STALE pdf.
+    # Attaching both, then re-pointing the batch, makes a reprint a true drop-in
+    # replacement: the existing Slack/email/dashboard links resolve to the new file.
+    _attach_outputs_to_batch(batch.name, result)
+    updates = {}
+    if result.get("pick_list_url"):
+        updates["pick_list_url"] = result["pick_list_url"]
+    if result.get("labels_pdf_url"):
+        updates["labels_pdf_url"] = result["labels_pdf_url"]
+    if updates:
+        frappe.db.set_value("D2C Prepare Batch", batch.name, updates,
+                            update_modified=False)
+        frappe.db.commit()
     return {"batch": batch.name, "batch_stamp": stamp,
             "orders": result["labelled"], "requested_orders": len(dns), **result}
 

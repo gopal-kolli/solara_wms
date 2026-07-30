@@ -790,6 +790,7 @@ def _fetch_d2c_labels():
 
     fetched = pending = invoiced = inv_failed = fulfilled = ful_failed = errors = 0
     shortfall = 0
+    ful_no_fo = 0
     for dn in dns:
         if time.monotonic() > deadline:
             _log("D2C Label Fetch", "time budget hit — processed part of batch, rest next run")
@@ -812,13 +813,18 @@ def _fetch_d2c_labels():
             # Fulfillment first — needs only the AWB, so it never waits on the label.
             if do_fulfill and not cint(dn.get("custom_shopify_fulfilled")):
                 outcome = _try_fulfill(dn)
-                if outcome in ("created", "updated", "in_sync"):
+                if outcome in ("created", "updated", "repaired", "in_sync"):
                     frappe.db.set_value("Delivery Note", dn.name,
                                         "custom_shopify_fulfilled", 1)
                     frappe.db.commit()
                     fulfilled += 1
                 elif outcome == "failed":
                     ful_failed += 1
+                elif outcome == "no_open_fo":
+                    # Counted + logged: this used to be a SILENT dead end. A DN
+                    # landing here has an incomplete Shopify fulfillment we do not
+                    # own, so no code path will ever heal it — it needs eyes.
+                    ful_no_fo += 1
 
             has_label = True
             if not _has_attached_label(dn.name):
@@ -855,6 +861,7 @@ def _fetch_d2c_labels():
     return {"attached": fetched, "pending": pending,
             "invoiced": invoiced, "inv_failed": inv_failed,
             "fulfilled": fulfilled, "ful_failed": ful_failed,
+            "ful_no_fo": ful_no_fo,
             "errors": errors, "awb_shortfall": shortfall}
 
 
@@ -1017,12 +1024,48 @@ def _shopify_json(r):
         return None
 
 
+def _repair_tracking(dn, headers, gql, fulfillment_id, awbs, urls, carrier):
+    """Heal an EXISTING fulfillment of ours that is missing tracking numbers.
+
+    ALWAYS sends the FULL AWB set, never a delta: fulfillmentTrackingInfoUpdateV2
+    REPLACES the whole trackingInfo array rather than merging into it. That exact
+    behaviour is what let the legacy 2-AWB repush cron destroy parcels 3..N on
+    every 3+ box order (133 orders / 150 tracking numbers, 17-Jul..29-Jul-2026,
+    surfaced by Shanu on SOL1241948). Success is claimed only when every AWB is
+    confirmed present in the response."""
+    import requests
+
+    mut = ("mutation($f: ID!, $t: FulfillmentTrackingInput!, $n: Boolean) { "
+           "fulfillmentTrackingInfoUpdateV2(fulfillmentId: $f, trackingInfoInput: $t, "
+           "notifyCustomer: $n) { fulfillment { id trackingInfo { number } } "
+           "userErrors { message } } }")
+    payload = {"query": mut, "variables": {
+        "f": "gid://shopify/Fulfillment/" + str(fulfillment_id),
+        "t": {"numbers": awbs, "urls": urls, "company": carrier},
+        "n": True}}
+    r = requests.post(gql, data=json.dumps(payload), headers=headers, timeout=30)
+    j = _shopify_json(r)
+    node = ((j or {}).get("data") or {}).get("fulfillmentTrackingInfoUpdateV2") or {}
+    errs = node.get("userErrors", [])
+    have = set()
+    for t in ((node.get("fulfillment") or {}).get("trackingInfo") or []):
+        if t.get("number"):
+            have.add(t["number"])
+    if j is None or errs or not set(awbs).issubset(have):
+        _log("D2C Fulfill", "repair {0} AWB {1}: {2}".format(
+            dn.get("name"), ",".join(awbs), errs or "throttled/HTTP/incomplete"))
+        return "failed"
+    _log("D2C Fulfill", "REPAIRED {0}: tracking now {1}".format(
+        dn.get("name"), ",".join(awbs)))
+    return "repaired"
+
+
 def push_shopify_fulfillment(dn):
     """Create the Shopify fulfillment for a DN, so the order shows fulfilled + the
     customer gets the AWB tracking. Idempotent + non-clobbering: returns in_sync if a
     success fulfillment already carries all our AWBs, and never overwrites a
-    fulfillment created by another path. Returns created | in_sync | no_open_fo |
-    skipped | failed. App-code replacement for the sandbox-broken 'Auto Sync AWB to
+    fulfillment created by another path. Returns created | repaired | in_sync |
+    no_open_fo | skipped | failed. App-code replacement for the sandbox-broken 'Auto Sync AWB to
     Shopify' server script (frappe.make_*_request is None in safe_exec). Every
     Shopify call is validated via _shopify_json (rejects throttle/HTTP/errors) so a
     rate-limited response is NEVER mistaken for a successful fulfillment."""
@@ -1083,10 +1126,20 @@ def push_shopify_fulfillment(dn):
         return "failed"
     fulfillments = (fr.json() or {}).get("fulfillments", [])
     covered = set()
+    repairable = None
     for f in fulfillments:
         if f.get("status") == "success":
-            covered |= set(f.get("tracking_numbers") or (
+            nums = set(f.get("tracking_numbers") or (
                 [f["tracking_number"]] if f.get("tracking_number") else []))
+            covered |= nums
+            # A success fulfillment whose tracking is a SUBSET of ours is one of
+            # OURS that came up short (truncated by the legacy 2-AWB repush cron,
+            # or created before the last parcel's AWB landed) — safe to repair in
+            # place. One carrying tracking we don't own belongs to another path;
+            # never touch it. An empty set is a subset: filling in tracking on an
+            # untracked fulfillment can't clobber anything.
+            if repairable is None and nums.issubset(set(awbs)):
+                repairable = f.get("id")
     if awbs and set(awbs).issubset(covered):
         return "in_sync"
 
@@ -1105,7 +1158,14 @@ def push_shopify_fulfillment(dn):
     open_fos = [(e.get("node") or {}).get("id") for e in edges
                 if (e.get("node") or {}).get("status") == "OPEN"]
     if not open_fos:
-        # No open FO: either fulfilled elsewhere (covered != our awbs) or cancelled.
+        # No open FO: the order is already fulfilled (or cancelled). If one of OUR
+        # fulfillments is carrying an incomplete tracking set, repair it in place —
+        # without this, a short fulfillment could never be healed and the customer
+        # never saw parcels 3..N. Anything we don't own is left strictly alone.
+        if repairable:
+            return _repair_tracking(dn, headers, gql, repairable, awbs, urls, carrier)
+        _log("D2C Fulfill", "no open FO for {0} AWB {1} — not ours to repair".format(
+            dn.get("name"), awb))
         return "no_open_fo"
 
     cmut = ("mutation($f: FulfillmentV2Input!) { fulfillmentCreateV2(fulfillment: $f) "
@@ -1453,7 +1513,8 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     # is the hard boundary that makes concurrent fetch/prepare scheduler jobs
     # safe: a label that arrives seconds late remains unbatched and is retried
     # in the next wave instead of being permanently marked as prepared.
-    result = _render_batch_files(candidates, on_date, batch_no, stamp)
+    result = _render_batch_files(candidates, on_date, batch_no, stamp,
+                                 pack_lines=cint(settings.get("pack_lines")))
     missing = set(result["missing_labels"])
     dns = [d for d in candidates if _label_identity(d) not in missing]
     summary.update(result)
@@ -1488,6 +1549,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         "units": summary["units"],
         "pick_list_url": result["pick_list_url"],
         "labels_pdf_url": result["labels_pdf_url"],
+        "output_parts": json.dumps(result["parts"]) if result.get("parts") else None,
         "missing_labels": json.dumps(result["missing_labels"]),
         "delivery_notes": [
             {"delivery_note": d["name"],
@@ -1570,15 +1632,29 @@ def _email_batch(batch_name, summary, settings):
         by_c = summary.get("by_courier") or []
         courier_note = ("<p><b>By courier:</b> " + " &nbsp;·&nbsp; ".join(
             "{0} <b>{1}</b>".format(c["courier"], c["parcels"]) for c in by_c) + "</p>") if by_c else ""
+        parts = summary.get("parts") or []
+        parts_note = ""
+        if parts:
+            rows = "".join(
+                "<li><b>Line {p}</b> ({o} orders / {pc:g} pcs): "
+                "<a href='{dash}/reconciliation/label-status/batch/{batch}/picklist-p{p}.pdf'>pick list</a> · "
+                "<a href='{dash}/reconciliation/label-status/batch/{batch}/labels-p{p}.pdf'>labels</a></li>"
+                .format(p=pt["part"], o=pt["orders"], pc=pt.get("pieces") or 0,
+                        dash=LABEL_DASHBOARD_BASE, batch=batch_name)
+                for pt in parts)
+            parts_note = ("<p><b>Per-line parts</b> — each line prints its own matched "
+                          "pick list + label stack:</p><ul>{0}</ul>".format(rows))
         body = (
             "<p><b>D2C dispatch batch {batch}</b> — {orders} orders / {units:g} units "
             "({run_type}, {date}, stamp {stamp})</p>"
             "{courier_note}"
             "<ul><li>Pick list: <a href='{dash}/reconciliation/label-status/batch/{batch}/picklist.pdf'>{pl_name}</a></li>"
             "<li>Labels PDF: <a href='{dash}/reconciliation/label-status/batch/{batch}/labels.pdf'>{lb_name}</a></li></ul>"
+            "{parts_note}"
             "{attach_note}{missing_note}"
             "<p>Ship these from the Atlas batch and SKIP them on the manual sheet.</p>"
         ).format(
+            parts_note=parts_note,
             courier_note=courier_note,
             batch=batch_name, orders=summary.get("orders"), units=summary.get("units") or 0,
             run_type=summary.get("run_type") or "", date=summary.get("date"),
@@ -1628,6 +1704,13 @@ def _slack_batch(batch_name, summary, settings):
         "• <{0}/reconciliation/label-status/batch/{1}/picklist.pdf|:clipboard: Pick list>".format(dash, batch_name),
         "Ship from the Atlas batch and *skip them on the manual sheet*.",
     ]
+    for pt in summary.get("parts") or []:
+        lines.append(
+            "• *Line {p}* ({o} orders/{pc:g} pcs): "
+            "<{dash}/reconciliation/label-status/batch/{b}/picklist-p{p}.pdf|pick list> · "
+            "<{dash}/reconciliation/label-status/batch/{b}/labels-p{p}.pdf|labels>".format(
+                p=pt["part"], o=pt["orders"], pc=pt.get("pieces") or 0,
+                dash=dash, b=batch_name))
     by_c = summary.get("by_courier") or []
     if by_c:
         lines.insert(2, "*By courier:* " + "  ·  ".join(
@@ -1657,7 +1740,10 @@ def _attach_outputs_to_batch(batch_name, result):
     """Link the generated pick-list/labels File docs to the batch record so they
     show in its attachments sidebar and can't be swept by the same-name overwrite
     in _save_output_file (which skips attached files)."""
-    for url in (result.get("pick_list_url"), result.get("labels_pdf_url")):
+    urls = [result.get("pick_list_url"), result.get("labels_pdf_url")]
+    for p in result.get("parts") or []:
+        urls += [p.get("pick_list_url"), p.get("labels_pdf_url")]
+    for url in urls:
         if not url:
             continue
         for f in frappe.get_all("File", filters={"file_url": url,
@@ -1713,7 +1799,8 @@ def reprint_batch(batch_name):
     dns = [d for d in dns if d["name"] in wanted]
     # Reuse the original stamp so a reprint regenerates the SAME filenames.
     stamp = batch.get("batch_stamp") or now_datetime().strftime("%m%d%H%M")
-    result = _render_batch_files(dns, batch.date, batch.batch_no, stamp)
+    result = _render_batch_files(dns, batch.date, batch.batch_no, stamp,
+                                 pack_lines=cint(settings.get("pack_lines")))
     # A reprint used to leave its output ORPHANED, which broke the batch it was
     # meant to repair (2026-07-28):
     #   * _save_output_file only sweeps prior same-name files that are UNATTACHED,
@@ -1732,6 +1819,8 @@ def reprint_batch(batch_name):
         updates["pick_list_url"] = result["pick_list_url"]
     if result.get("labels_pdf_url"):
         updates["labels_pdf_url"] = result["labels_pdf_url"]
+    if result.get("parts"):
+        updates["output_parts"] = json.dumps(result["parts"])
     if updates:
         frappe.db.set_value("D2C Prepare Batch", batch.name, updates,
                             update_modified=False)
@@ -1740,7 +1829,52 @@ def reprint_batch(batch_name):
             "orders": result["labelled"], "requested_orders": len(dns), **result}
 
 
-def _render_batch_files(dns, on_date, batch_no, stamp):
+def _dn_pieces(d):
+    """Physical piece count of one DN (post _enrich_physical_lines)."""
+    return sum(flt(l["qty"]) for l in d.get("_lines") or [])
+
+
+def _partition_for_pack_lines(dns, n):
+    """Split an already-sorted DN list into n CONTIGUOUS chunks for the packing
+    lines, balanced by physical pieces (a combo is slower to pack than three
+    qty-1 orders of the same count of rows). Contiguity is load-bearing: it
+    preserves the single-SKU assembly-line runs the sort key builds and keeps a
+    multi-box order's labels inside one line's stack. After the greedy cut, the
+    boundary slides forward up to 3 orders to finish the current SKU run
+    (_sortkey[1]) so a run isn't split across two lines. Every chunk is
+    non-empty while orders remain; n > len(dns) degenerates gracefully."""
+    n = cint(n)
+    if n <= 1 or len(dns) <= 1:
+        return [list(dns)] if dns else []
+    n = min(n, len(dns))
+    total = sum(_dn_pieces(d) for d in dns) or len(dns)
+    chunks, start, used = [], 0, 0.0
+    for part in range(n):
+        left = n - part
+        if part == n - 1:
+            chunks.append(dns[start:])
+            break
+        fair = (total - used) / left
+        acc, i = 0.0, start
+        while i < len(dns) - left + 1 and acc < fair:
+            acc += _dn_pieces(dns[i]) or 1
+            i += 1
+        # finish the current SKU run if its boundary is within 3 more orders
+        def _run(d):
+            return d.get("_sortkey", ("", "", ""))[1] if d.get("_sortkey") else None
+        slid = 0
+        while (i < len(dns) - left + 1 and slid < 3
+               and _run(dns[i]) is not None and _run(dns[i]) == _run(dns[i - 1])):
+            acc += _dn_pieces(dns[i]) or 1
+            i += 1
+            slid += 1
+        chunks.append(dns[start:i])
+        used += acc
+        start = i
+    return [c for c in chunks if c]
+
+
+def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0):
     # Labels are the admission control for a batch. Build them first, then make
     # the pick list from the exact same successfully-labelled subset so the two
     # PDFs can never disagree and an unlabelled DN is never marked prepared.
@@ -1749,11 +1883,35 @@ def _render_batch_files(dns, on_date, batch_no, stamp):
     printable = [d for d in dns if _label_identity(d) not in missing_set]
     pick_url = (_build_pick_list_pdf(printable, on_date, batch_no, stamp)
                 if printable else None)
+    # Per-line parts: contiguous piece-balanced chunks, each with its own matched
+    # pick-list + labels pair (files suffixed -P1..-Pn). The combined pair above
+    # is always kept — archive, legacy dashboard links, and the admission control.
+    parts = []
+    if cint(pack_lines) > 1 and printable:
+        _enrich_physical_lines(printable)   # piece counts for balancing (idempotent)
+        pos = 1
+        for i, chunk in enumerate(_partition_for_pack_lines(printable, pack_lines), 1):
+            pstamp = "{0}-P{1}".format(stamp, i)
+            part_label = "Part {0}/{1} — orders {2}–{3}".format(
+                i, cint(pack_lines), pos, pos + len(chunk) - 1)
+            c_labels, _ = _build_combined_labels_pdf(chunk, on_date, batch_no, pstamp)
+            c_pick = _build_pick_list_pdf(chunk, on_date, batch_no, pstamp,
+                                          part_label=part_label)
+            parts.append({
+                "part": i,
+                "orders": len(chunk),
+                "pieces": sum(_dn_pieces(d) for d in chunk),
+                "order_range": [pos, pos + len(chunk) - 1],
+                "pick_list_url": c_pick,
+                "labels_pdf_url": c_labels,
+            })
+            pos += len(chunk)
     return {
         "pick_list_url": pick_url,
         "labels_pdf_url": labels_url,
         "missing_labels": missing,
         "labelled": len(printable),
+        "parts": parts,
     }
 
 
@@ -1816,7 +1974,7 @@ def _sku_summary(dns):
     )
 
 
-def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
+def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None):
     from frappe.utils.pdf import get_pdf
 
     _enrich_physical_lines(dns)
@@ -1884,7 +2042,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
 
     html = """
     <div style="font-family:Arial,sans-serif;font-size:11px">
-      <h2 style="margin:0">D2C Pick List — {date} — Batch {batch_no} ({stamp})</h2>
+      <h2 style="margin:0">D2C Pick List — {date} — Batch {batch_no} ({stamp}){part_h}</h2>
       <p style="margin:2px 0 10px">Orders: <b>{orders}</b> &nbsp; Pieces: <b>{units:g}</b>
          &nbsp; SKUs: <b>{skus}</b> &nbsp;
          <span style="color:#888">generated {gen}</span></p>
@@ -1926,6 +2084,8 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp):
       </table>
     </div>
     """.format(date=on_date, batch_no=batch_no, stamp=stamp, orders=len(dns),
+               part_h=(" — <span style='background:#222;color:#fff;padding:1px 6px'>"
+                       + esc(part_label) + "</span>") if part_label else "",
                units=total_pieces, skus=len(sku_rows),
                gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
                pick_rows=pick_rows, pack_rows=pack_rows)

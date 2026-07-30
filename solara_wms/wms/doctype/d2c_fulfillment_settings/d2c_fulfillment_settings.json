@@ -28,6 +28,7 @@
   "prepare_waves_enabled",
   "prepare_wave_hours",
   "prepare_lookback_days",
+  "pack_lines",
   "wave_email_recipients",
   "wave_slack_webhook",
   "ops_sheet_section",
@@ -247,7 +248,7 @@
    "fieldtype": "Check",
    "default": "0",
    "label": "Auto-stamp Dispatched from Courier Tracking",
-   "description": "When ON, a periodic job polls ClickPost and stamps Delivery Note custom_dispatched=1 as soon as the courier records a first scan (parcel left the warehouse) — the same flag the manual dispatch-scan sets. Makes 'labeled vs shipped' reliable without needing every parcel scanned. ElasticRun (no ClickPost tracking) stays on the manual scan. Default OFF until validated."
+   "description": "When ON, a periodic job polls ClickPost and stamps Delivery Note custom_dispatched=1 as soon as the courier records a first scan (parcel left the warehouse) \u2014 the same flag the manual dispatch-scan sets. Makes 'labeled vs shipped' reliable without needing every parcel scanned. ElasticRun (no ClickPost tracking) stays on the manual scan. Default OFF until validated."
   },
   {
    "fieldname": "actions_section",
@@ -288,6 +289,13 @@
    "description": "Prepare covers unbatched D2C DNs from this many days back through today \u2014 so overnight releases (posted yesterday, after the last wave) roll into the morning wave instead of stranding."
   },
   {
+   "fieldname": "pack_lines",
+   "fieldtype": "Int",
+   "default": "0",
+   "label": "Pack Lines (split parts)",
+   "description": "Number of assembly lines to split each batch's pick list + labels into (contiguous, piece-balanced parts, files suffixed -P1..-Pn). 0 or 1 = no split. The combined pair is always generated."
+  },
+  {
    "fieldname": "wave_email_recipients",
    "fieldtype": "Small Text",
    "label": "Batch Email Recipients",
@@ -297,7 +305,7 @@
    "fieldname": "wave_slack_webhook",
    "fieldtype": "Password",
    "label": "Wave Slack Webhook URL",
-   "description": "Slack Incoming Webhook URL. Every Prepare run that creates a batch posts the wave (order count + label/pick links) to the webhook's channel — a reliable path independent of email. Empty = no Slack post."
+   "description": "Slack Incoming Webhook URL. Every Prepare run that creates a batch posts the wave (order count + label/pick links) to the webhook's channel \u2014 a reliable path independent of email. Empty = no Slack post."
   },
   {
    "fieldname": "ops_sheet_section",

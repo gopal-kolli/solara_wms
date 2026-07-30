@@ -17,6 +17,7 @@
   "pick_list_url",
   "labels_pdf_url",
   "missing_labels",
+  "output_parts",
   "dns_section",
   "delivery_notes"
  ],
@@ -104,6 +105,14 @@
    "fieldtype": "Small Text",
    "label": "Missing Labels",
    "read_only": 1
+  },
+  {
+   "fieldname": "output_parts",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "read_only": 1,
+   "label": "Output Parts (per-line files)",
+   "description": "JSON [{part, orders, pieces, pick_list_url, labels_pdf_url}] when the batch was split across pack lines."
   },
   {
    "fieldname": "dns_section",

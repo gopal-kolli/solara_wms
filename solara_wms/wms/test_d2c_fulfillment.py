@@ -181,6 +181,69 @@ class TestAwbCourierPairs(TestCase):
         self.assertEqual(
             fulfillment._awb_courier_pairs({"awb_number": None}), [])
 
+    def test_awb_list_beats_stale_awb_2(self):
+        """3+ box orders: custom_awb_2 only ever holds parcel 2, so a reader that
+        stops at it silently drops parcels 3..N. That is exactly how the legacy
+        repush cron truncated 133 orders / 150 tracking numbers in July 2026."""
+        dn = {"awb_number": "A1", "courier_partner": "Shadowfax",
+              "custom_awb_2": "A2",
+              "custom_awb_list": '[{"awb": "A1", "courier": "Shadowfax"},'
+                                 ' {"awb": "A2", "courier": "Shadowfax"},'
+                                 ' {"awb": "A3", "courier": "Shadowfax"}]'}
+        self.assertEqual([a for a, _ in fulfillment._awb_courier_pairs(dn)],
+                         ["A1", "A2", "A3"])
+
+    def test_bad_awb_list_json_falls_back(self):
+        """Corrupt JSON must degrade to the legacy pair, never to zero parcels."""
+        pairs = fulfillment._awb_courier_pairs({
+            "awb_number": "A1", "courier_partner": "Shadowfax",
+            "custom_awb_2": "A2", "custom_awb_list": "{not json"})
+        self.assertEqual([a for a, _ in pairs], ["A1", "A2"])
+
+
+class TestRepairTracking(TestCase):
+    """A short fulfillment must be healable, and only when it is OURS.
+
+    Until 2026-07-29 push_shopify_fulfillment was create-only: it correctly
+    detected that Shopify was missing an AWB, then returned "no_open_fo" (the
+    order being already fulfilled) and gave up — silently, uncounted. Combined
+    with the one-way custom_shopify_fulfilled latch, parcels 3..N were never
+    recoverable without a manual backfill.
+    """
+
+    def _resp(self, numbers, errors=None):
+        return {"data": {"fulfillmentTrackingInfoUpdateV2": {
+            "fulfillment": {"id": "gid://shopify/Fulfillment/1",
+                            "trackingInfo": [{"number": n} for n in numbers]},
+            "userErrors": errors or []}}}
+
+    def _run(self, resp, awbs):
+        """Drive _repair_tracking against a stubbed Shopify response.
+        requests.post is patched out so the test never touches the network."""
+        with patch("requests.post", return_value=None), \
+                patch.object(fulfillment, "_shopify_json", return_value=resp):
+            return fulfillment._repair_tracking(
+                {"name": "DN-TEST"}, {}, "https://shop/graphql.json", "1",
+                awbs, ["u"] * len(awbs), "Shadowfax")
+
+    def test_repair_confirms_every_awb(self):
+        self.assertEqual(self._run(self._resp(["A1", "A2", "A3"]),
+                                   ["A1", "A2", "A3"]), "repaired")
+
+    def test_partial_landing_is_a_failure_not_a_success(self):
+        """Shopify echoing back only 2 of 3 must NOT be latched as fulfilled —
+        that is the truncation bug reasserting itself one layer down."""
+        self.assertEqual(self._run(self._resp(["A1", "A2"]),
+                                   ["A1", "A2", "A3"]), "failed")
+
+    def test_user_errors_are_a_failure(self):
+        self.assertEqual(
+            self._run(self._resp(["A1", "A2", "A3"], errors=[{"message": "nope"}]),
+                      ["A1", "A2", "A3"]), "failed")
+
+    def test_throttled_response_is_a_failure(self):
+        self.assertEqual(self._run(None, ["A1", "A2", "A3"]), "failed")
+
 
 class TestReprintBatchRelinks(TestCase):
     """A reprint must be a DROP-IN replacement for the batch's existing links.
@@ -254,3 +317,53 @@ class TestReprintBatchRelinks(TestCase):
         fulfillment.reprint_batch("D2CB-2026-07-28-050")
 
         set_value.assert_not_called()
+
+
+def _pdn(name, pieces, run="X"):
+    """Minimal DN dict for partition tests: _lines carries the piece count,
+    _sortkey[1] the SKU-run group (what the boundary-slide keys on)."""
+    return {"name": name, "_lines": [{"qty": pieces}], "_sortkey": (0, run, name)}
+
+
+class TestPartitionForPackLines(TestCase):
+    """Contiguous, piece-balanced split of the pack sequence across N lines.
+
+    Contiguity is load-bearing: it keeps a multi-box order's labels inside one
+    line's stack and preserves the single-SKU assembly-line runs."""
+
+    def test_partition_is_exact_and_contiguous(self):
+        dns = [_pdn(f"DN-{i}", 1) for i in range(10)]
+        chunks = fulfillment._partition_for_pack_lines(dns, 4)
+        flat = [d["name"] for c in chunks for d in c]
+        self.assertEqual(flat, [d["name"] for d in dns])   # order preserved, none lost/duplicated
+        self.assertEqual(len(chunks), 4)
+        self.assertTrue(all(c for c in chunks))
+
+    def test_balances_by_pieces_not_orders(self):
+        # one 12-piece combo + twelve 1-piece orders, 2 lines:
+        # by ORDERS the combo side would get 6 more orders; by PIECES it stands alone-ish
+        dns = [_pdn("BIG", 12, run="combo")] + [_pdn(f"S{i}", 1, run=f"r{i}") for i in range(12)]
+        chunks = fulfillment._partition_for_pack_lines(dns, 2)
+        p = [sum(fulfillment._dn_pieces(d) for d in c) for c in chunks]
+        self.assertEqual(len(chunks), 2)
+        self.assertLessEqual(abs(p[0] - p[1]), 3)
+
+    def test_run_boundary_slide(self):
+        # greedy cut would land mid-run; the boundary slides (<=3) to finish the run
+        dns = ([_pdn(f"A{i}", 1, run="AF-501") for i in range(6)]
+               + [_pdn(f"B{i}", 1, run="BLN-401") for i in range(4)])
+        chunks = fulfillment._partition_for_pack_lines(dns, 2)
+        first_runs = {d["_sortkey"][1] for d in chunks[0]}
+        self.assertEqual(first_runs, {"AF-501"})   # run not split across lines
+
+    def test_n_leq_one_is_passthrough(self):
+        dns = [_pdn("A", 1), _pdn("B", 2)]
+        self.assertEqual(len(fulfillment._partition_for_pack_lines(dns, 1)), 1)
+        self.assertEqual(len(fulfillment._partition_for_pack_lines(dns, 0)), 1)
+        self.assertEqual(fulfillment._partition_for_pack_lines([], 4), [])
+
+    def test_more_lines_than_orders_degenerates(self):
+        dns = [_pdn(f"D{i}", 1, run=f"r{i}") for i in range(3)]
+        chunks = fulfillment._partition_for_pack_lines(dns, 4)
+        self.assertEqual(len(chunks), 3)
+        self.assertTrue(all(len(c) == 1 for c in chunks))

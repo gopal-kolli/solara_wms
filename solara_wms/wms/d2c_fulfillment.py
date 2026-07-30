@@ -1636,14 +1636,13 @@ def _email_batch(batch_name, summary, settings):
         parts_note = ""
         if parts:
             rows = "".join(
-                "<li><b>Line {p}</b> ({o} orders / {pc:g} pcs): "
-                "<a href='{dash}/reconciliation/label-status/batch/{batch}/picklist-p{p}.pdf'>pick list</a> · "
-                "<a href='{dash}/reconciliation/label-status/batch/{batch}/labels-p{p}.pdf'>labels</a></li>"
-                .format(p=pt["part"], o=pt["orders"], pc=pt.get("pieces") or 0,
-                        dash=LABEL_DASHBOARD_BASE, batch=batch_name)
+                "<li><b>Line {p}</b>: orders {a}&ndash;{b} ({o} orders / {pc:g} pcs)</li>"
+                .format(p=pt["part"], a=pt["order_range"][0], b=pt["order_range"][1],
+                        o=pt["orders"], pc=pt.get("pieces") or 0)
                 for pt in parts)
-            parts_note = ("<p><b>Per-line parts</b> — each line prints its own matched "
-                          "pick list + label stack:</p><ul>{0}</ul>".format(rows))
+            parts_note = ("<p><b>Line sections</b> — ONE file; a black divider page "
+                          "marks where each line's section starts (same split in the "
+                          "label stack):</p><ul>{0}</ul>".format(rows))
         body = (
             "<p><b>D2C dispatch batch {batch}</b> — {orders} orders / {units:g} units "
             "({run_type}, {date}, stamp {stamp})</p>"
@@ -1704,13 +1703,14 @@ def _slack_batch(batch_name, summary, settings):
         "• <{0}/reconciliation/label-status/batch/{1}/picklist.pdf|:clipboard: Pick list>".format(dash, batch_name),
         "Ship from the Atlas batch and *skip them on the manual sheet*.",
     ]
-    for pt in summary.get("parts") or []:
-        lines.append(
-            "• *Line {p}* ({o} orders/{pc:g} pcs): "
-            "<{dash}/reconciliation/label-status/batch/{b}/picklist-p{p}.pdf|pick list> · "
-            "<{dash}/reconciliation/label-status/batch/{b}/labels-p{p}.pdf|labels>".format(
-                p=pt["part"], o=pt["orders"], pc=pt.get("pieces") or 0,
-                dash=dash, b=batch_name))
+    parts = summary.get("parts") or []
+    if parts:
+        lines.append("*Line sections* (one file — divider pages mark each line): "
+                     + "  ·  ".join(
+                         "L{p} #{a}–{b} ({pc:g} pcs)".format(
+                             p=pt["part"], a=pt["order_range"][0],
+                             b=pt["order_range"][1], pc=pt.get("pieces") or 0)
+                         for pt in parts))
     by_c = summary.get("by_courier") or []
     if by_c:
         lines.insert(2, "*By courier:* " + "  ·  ".join(
@@ -1881,37 +1881,40 @@ def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0):
     labels_url, missing = _build_combined_labels_pdf(dns, on_date, batch_no, stamp)
     missing_set = set(missing)
     printable = [d for d in dns if _label_identity(d) not in missing_set]
-    pick_url = (_build_pick_list_pdf(printable, on_date, batch_no, stamp)
-                if printable else None)
-    # Per-line parts: contiguous piece-balanced chunks, each with its own matched
-    # pick-list + labels pair (files suffixed -P1..-Pn). The combined pair above
-    # is always kept — archive, legacy dashboard links, and the admission control.
+    # Packing-line sections (Gopal, 2026-07-30): ONE pick list + ONE label stack
+    # per batch regardless of volume, with a divider page where each line's
+    # section begins — not N files (clumsy at 2,000 orders/day). Chunks are
+    # contiguous + piece-balanced; order #s stay global.
     parts = []
     if cint(pack_lines) > 1 and printable:
         _enrich_physical_lines(printable)   # piece counts for balancing (idempotent)
         pos = 1
         for i, chunk in enumerate(_partition_for_pack_lines(printable, pack_lines), 1):
-            pstamp = "{0}-P{1}".format(stamp, i)
-            part_label = "Part {0}/{1} — orders {2}–{3}".format(
-                i, cint(pack_lines), pos, pos + len(chunk) - 1)
-            c_labels, _ = _build_combined_labels_pdf(chunk, on_date, batch_no, pstamp)
-            c_pick = _build_pick_list_pdf(chunk, on_date, batch_no, pstamp,
-                                          part_label=part_label)
             parts.append({
                 "part": i,
                 "orders": len(chunk),
                 "pieces": sum(_dn_pieces(d) for d in chunk),
                 "order_range": [pos, pos + len(chunk) - 1],
-                "pick_list_url": c_pick,
-                "labels_pdf_url": c_labels,
+                "_names": [d["name"] for d in chunk],
             })
             pos += len(chunk)
+        # Re-merge the labels WITH divider pages (second pass over the attached
+        # files — seconds even at 1,300 orders; the first pass already decided
+        # admission, so this pass sees only printable DNs).
+        labels_url, _ = _build_combined_labels_pdf(printable, on_date, batch_no,
+                                                   stamp, parts=parts)
+    pick_url = (_build_pick_list_pdf(printable, on_date, batch_no, stamp,
+                                     parts=parts or None)
+                if printable else None)
+    # output_parts is persisted for attribution (CS ticket → order # → line);
+    # strip the internal DN name list from what gets stored/notified.
+    public_parts = [{k: v for k, v in p.items() if k != "_names"} for p in parts]
     return {
         "pick_list_url": pick_url,
         "labels_pdf_url": labels_url,
         "missing_labels": missing,
         "labelled": len(printable),
-        "parts": parts,
+        "parts": public_parts,
     }
 
 
@@ -1974,7 +1977,7 @@ def _sku_summary(dns):
     )
 
 
-def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None):
+def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=None):
     from frappe.utils.pdf import get_pdf
 
     _enrich_physical_lines(dns)
@@ -2020,25 +2023,28 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None):
                 .format(esc(it.item_code), flt(it.qty)))
         return "<br>".join(parts)
 
-    pack_rows = "".join(
-        ("<tr{shade}><td>{n}</td><td>{order}</td><td>{awb}</td>"
-         "<td style='text-align:center;font-weight:bold'>{boxes}</td>"
-         "<td>{contents}</td>"
-         "<td style='text-align:center;font-weight:bold'>{pieces:g}</td>"
-         "<td></td><td></td></tr>").format(
-            # Shaded row = multi-piece order → 100% second-person QC count (SOP-PACK-QC)
-            shade=" style='background:#e8e8e8'"
-                  if sum(flt(l["qty"]) for l in d["_lines"]) > 1 else "",
-            n=i + 1,
-            order=esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]),
-            awb=awb_cell(d),
-            # Cartons to hand the courier. Shown so a packer can never seal one box
-            # for an order whose label sheet carries two.
-            boxes=len(_awb_courier_pairs(d)) or cint(d.get("custom_box_count")) or 1,
-            contents=content_cell(d),
-            pieces=sum(flt(l["qty"]) for l in d["_lines"]))
-        for i, d in enumerate(dns)
-    )
+    def pack_rows_html(seq, start_no):
+        """Section B rows for a slice, numbered GLOBALLY (start_no..) so the #
+        column always equals the position in the batch's label sequence."""
+        return "".join(
+            ("<tr{shade}><td>{n}</td><td>{order}</td><td>{awb}</td>"
+             "<td style='text-align:center;font-weight:bold'>{boxes}</td>"
+             "<td>{contents}</td>"
+             "<td style='text-align:center;font-weight:bold'>{pieces:g}</td>"
+             "<td></td><td></td></tr>").format(
+                # Shaded row = multi-piece order → 100% second-person QC count (SOP-PACK-QC)
+                shade=" style='background:#e8e8e8'"
+                      if sum(flt(l["qty"]) for l in d["_lines"]) > 1 else "",
+                n=start_no + i,
+                order=esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]),
+                awb=awb_cell(d),
+                # Cartons to hand the courier. Shown so a packer can never seal one box
+                # for an order whose label sheet carries two.
+                boxes=len(_awb_courier_pairs(d)) or cint(d.get("custom_box_count")) or 1,
+                contents=content_cell(d),
+                pieces=sum(flt(l["qty"]) for l in d["_lines"]))
+            for i, d in enumerate(seq)
+        )
 
     html = """
     <div style="font-family:Arial,sans-serif;font-size:11px">
@@ -2060,7 +2066,11 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None):
         </tbody>
       </table>
 
-      <h3 style="margin:12px 0 3px">B. PACK + QC (by order — matches label sequence)</h3>
+      {section_b}
+    </div>
+    """
+
+    B_TABLE = """
       <p style="margin:0 0 3px;color:#555">Tick every box line as it goes in.
          <b>Shaded row = multi-piece order → second person counts before sealing
          (SOP-PACK-QC), both initial.</b> Pieces = physical units that must be in
@@ -2080,27 +2090,91 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None):
           <th>Pcs</th>
           <th>Packed</th><th>QC</th>
         </tr></thead>
-        <tbody>{pack_rows}</tbody>
-      </table>
-    </div>
-    """.format(date=on_date, batch_no=batch_no, stamp=stamp, orders=len(dns),
-               part_h=(" — <span style='background:#222;color:#fff;padding:1px 6px'>"
-                       + esc(part_label) + "</span>") if part_label else "",
-               units=total_pieces, skus=len(sku_rows),
-               gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
-               pick_rows=pick_rows, pack_rows=pack_rows)
+        <tbody>{rows}</tbody>
+      </table>"""
+
+    if parts:
+        # One file, one line-section per part: a full-width black separator
+        # heading on a fresh page marks where each line's work begins, mirroring
+        # the divider sheets in the labels stack. Order #s stay GLOBAL so the
+        # sheet always matches the label sequence 1:1.
+        by_name = {d["name"]: d for d in dns}
+        sections = []
+        for pt in parts:
+            chunk = [by_name[n] for n in pt.get("_names") or [] if n in by_name]
+            if not chunk:
+                continue
+            sections.append(
+                "<div style='page-break-before:always'></div>"
+                "<h2 style='font-size:26px;background:#000;color:#fff;padding:10px;"
+                "text-align:center;margin:0 0 2px'>LINE {p} / {n} &nbsp;·&nbsp; "
+                "orders {a}&ndash;{b} &nbsp;·&nbsp; {o} orders / {pc:g} pcs</h2>"
+                .format(p=pt["part"], n=len(parts), a=pt["order_range"][0],
+                        b=pt["order_range"][1], o=pt["orders"],
+                        pc=pt.get("pieces") or 0)
+                + "<h3 style='margin:6px 0 3px'>B. PACK + QC — Line {p} "
+                  "(matches label sequence)</h3>".format(p=pt["part"])
+                + B_TABLE.format(rows=pack_rows_html(chunk, pt["order_range"][0]))
+            )
+        section_b = "".join(sections)
+    else:
+        section_b = ("<h3 style='margin:12px 0 3px'>B. PACK + QC (by order — "
+                     "matches label sequence)</h3>"
+                     + B_TABLE.format(rows=pack_rows_html(dns, 1)))
+
+    html = html.format(
+        date=on_date, batch_no=batch_no, stamp=stamp, orders=len(dns),
+        part_h=(" — <span style='background:#222;color:#fff;padding:1px 6px'>"
+                + esc(part_label) + "</span>") if part_label else "",
+        units=total_pieces, skus=len(sku_rows),
+        gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
+        pick_rows=pick_rows, section_b=section_b)
 
     pdf_bytes = get_pdf(html)
     return _save_output_file("d2c-pick-list-{0}.pdf".format(stamp), pdf_bytes)
 
 
-def _build_combined_labels_pdf(dns, on_date, batch_no, stamp):
+def _line_separator_pdf_pages(part):
+    """One big-type divider page for the thermal label stack: comes out of the
+    printer as a physical sheet marking where the next line's labels begin."""
+    from frappe.utils.pdf import get_pdf
+    from pypdf import PdfReader
+    html = (
+        "<div style='font-family:Arial;text-align:center;margin-top:180px'>"
+        "<div style='font-size:80px;font-weight:bold;background:#000;color:#fff;"
+        "padding:30px 0'>LINE {p}</div>"
+        "<div style='font-size:34px;margin-top:24px'>orders {a}&ndash;{b}</div>"
+        "<div style='font-size:24px;color:#555;margin-top:8px'>{o} orders &middot; "
+        "{pc:g} pieces &middot; hand this stack to Line {p}</div></div>"
+    ).format(p=part["part"], a=part["order_range"][0], b=part["order_range"][1],
+             o=part["orders"], pc=part.get("pieces") or 0)
+    return PdfReader(io.BytesIO(get_pdf(html))).pages
+
+
+def _build_combined_labels_pdf(dns, on_date, batch_no, stamp, parts=None):
+    """parts: optional list of {'part','order_range','orders','pieces','_names'}
+    (chunk metadata over the SAME dns sequence). When given, a divider page is
+    inserted where each line's section begins, so ONE printed stack splits
+    physically at the dividers instead of shipping N files."""
     from pypdf import PdfReader, PdfWriter
 
     writer = PdfWriter()
     missing = []
     first_err = None
+    # DN name -> the part that starts with it (divider goes before its labels)
+    part_start = {}
+    for pt in parts or []:
+        names = pt.get("_names") or []
+        if names:
+            part_start[names[0]] = pt
     for d in dns:
+        pt = part_start.get(d["name"])
+        if pt:
+            try:
+                for page in _line_separator_pdf_pages(pt):
+                    writer.add_page(page)
+            except Exception:
+                pass  # a missing divider must never block the labels
         # Prepare is intentionally network-free. The attached d2c-label File is
         # the fetch job's durable proof that every parcel label is present; using
         # a DN's live URL here can race expiry and can expose only parcel 1 of a

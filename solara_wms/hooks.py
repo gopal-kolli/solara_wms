@@ -60,6 +60,11 @@ scheduler_events = {
         "0 11,18 * * *": [
             "solara_wms.wms.d2c_fulfillment.d2c_completeness_report",
         ],
+        # Pack-verify box photos: 90-day retention (SOP-PACK-QC sheet rule).
+        # The D2C Pack Verify RECORD is kept forever; only the image is purged.
+        "40 2 * * *": [
+            "solara_wms.wms.d2c_pack_verify.purge_pack_photos",
+        ],
         # Auto-stamp custom_dispatched from courier first-scan. Gated by
         # dispatch_stamp_enabled (default OFF); twice hourly.
         "5,35 * * * *": [

@@ -203,3 +203,35 @@ def pack_verify_summary(on_date=None):
         "median_sec": durs[len(durs) // 2] if durs else None,
         "by_station": by_station,
     }
+
+
+def purge_pack_photos(days=90):
+    """Scheduler (daily). Delete pack-verify box photos older than `days`.
+
+    Retention matches SOP-PACK-QC's initialled-sheet rule (>=90 days) — long
+    enough to settle any CS "item missing" dispute, short enough that the
+    evidence never becomes a storage problem. At ~850 orders/day and ~80 KB a
+    photo that is ~2 GB/month, so without this the 200 GB object-storage
+    allowance disappears inside a few years and every site backup carries it.
+
+    Only the FILE is removed; the D2C Pack Verify record (counts, mismatch,
+    contents snapshot, who/when) is kept forever — that is the audit trail.
+    """
+    from frappe.utils import add_days, nowdate
+    cutoff = add_days(nowdate(), -cint(days or 90))
+    rows = frappe.get_all("File",
+                          filters={"file_name": ["like", "packverify-%"],
+                                   "creation": ["<", cutoff]},
+                          fields=["name"], limit_page_length=500)
+    removed = 0
+    for r in rows:
+        try:
+            frappe.delete_doc("File", r.name, ignore_permissions=True, force=True)
+            removed += 1
+        except Exception:
+            pass
+    if removed:
+        frappe.db.commit()
+        _log("D2C Pack Photo Purge",
+             "removed {0} pack-verify photo(s) older than {1} days".format(removed, days))
+    return {"removed": removed, "cutoff": cutoff}

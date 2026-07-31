@@ -146,5 +146,32 @@
   "no_copy": 1,
   "insert_after": "custom_awb_shortfall",
   "description": "Set by the D2C dispatch-scan flow when all of the order's parcels have been scanned at courier handover."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_pack_verified",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_pack_verified",
+  "label": "Pack Verified",
+  "fieldtype": "Check",
+  "default": "0",
+  "read_only": 1,
+  "no_copy": 1,
+  "insert_after": "custom_prepare_batch",
+  "description": "Set when the packer scanned this parcel at the bench, confirmed the piece count and photographed the open box (D2C Pack Verify). Advisory during the pilot \u2014 it does not gate dispatch."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_pack_verified_at",
+  "dt": "Delivery Note",
+  "module": "WMS",
+  "fieldname": "custom_pack_verified_at",
+  "label": "Pack Verified At",
+  "fieldtype": "Datetime",
+  "read_only": 1,
+  "no_copy": 1,
+  "insert_after": "custom_pack_verified",
+  "description": "When the pack verification was recorded. With D2C Dispatch Scan's scanned_at this brackets how long a sealed box waited before courier handover."
  }
 ]

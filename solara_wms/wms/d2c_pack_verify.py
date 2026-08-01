@@ -56,6 +56,72 @@ def _pieces_for_dn(dn_name):
     return lines, service
 
 
+def _sku_images(codes):
+    """SKU -> a picture the packer can recognise at a glance.
+
+    Shubham, 2026-07-31: "it should have image of what to pack" — a photo is read
+    far faster than SOL-AF-SIL-BASKET-P6, and mis-picks between similar variants
+    (blue vs black tumbler) are exactly what the SKU code fails to prevent.
+
+    Atlas Item.image is EMPTY for all 737 stock items today, so the pictures come
+    from Shopify. They are cached on Item.image the first time a SKU is seen, so
+    the bench never waits on a Shopify round-trip twice.
+    """
+    if not codes:
+        return {}
+    out = {}
+    missing = []
+    for r in frappe.get_all("Item", filters={"name": ["in", list(codes)]},
+                            fields=["name", "image"], limit_page_length=0):
+        if r.image:
+            out[r.name] = r.image
+        else:
+            missing.append(r.name)
+    if not missing:
+        return out
+    try:
+        shop = (frappe.db.get_single_value("Shopify Setting", "shopify_url") or "").strip()
+        token = frappe.utils.password.get_decrypted_password(
+            "Shopify Setting", "Shopify Setting", "password", raise_exception=False)
+        if not (shop and token):
+            return out
+        import requests
+        base = "https://{0}/admin/api/2024-01".format(shop.replace("https://", "").rstrip("/"))
+        # one page-walk is enough: the catalogue is a few hundred SKUs
+        page, url = None, base + "/products.json"
+        for _ in range(6):
+            params = {"limit": 250, "fields": "id,image,images,variants"}
+            if page:
+                params["page_info"] = page
+            resp = requests.get(url, headers={"X-Shopify-Access-Token": token},
+                                params=params, timeout=20)
+            if resp.status_code != 200:
+                break
+            for p in resp.json().get("products") or []:
+                imgs = {i.get("id"): i.get("src") for i in (p.get("images") or [])}
+                main = (p.get("image") or {}).get("src")
+                for v in p.get("variants") or []:
+                    sku = v.get("sku")
+                    if sku and sku in missing and sku not in out:
+                        src = imgs.get(v.get("image_id")) or main
+                        if src:
+                            out[sku] = src
+                            # cache so the next scan is instant and Shopify-free
+                            try:
+                                frappe.db.set_value("Item", sku, "image", src,
+                                                    update_modified=False)
+                            except Exception:
+                                pass
+            link = resp.headers.get("Link") or ""
+            if 'rel="next"' not in link:
+                break
+            page = link.split("page_info=")[1].split(">")[0].split("&")[0]
+        frappe.db.commit()
+    except Exception:
+        _log("D2C Pack Verify", "image lookup failed (non-fatal)\n" + frappe.get_traceback())
+    return out
+
+
 @frappe.whitelist()
 def pack_verify_get(code):
     """Scan at the bench -> what to pack. Returns:
@@ -78,6 +144,9 @@ def pack_verify_get(code):
                            fields=["name", "verified_at", "verified_by", "pieces_expected"],
                            limit_page_length=1)
     lines, service = _pieces_for_dn(dn_name)
+    imgs = _sku_images({l["item_code"] for l in lines})
+    for l in lines:
+        l["image"] = imgs.get(l["item_code"])
     total = sum(l["qty"] for l in lines)
     pairs = _awb_courier_pairs(dn)
     out = {

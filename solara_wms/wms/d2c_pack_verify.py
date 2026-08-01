@@ -56,6 +56,68 @@ def _pieces_for_dn(dn_name):
     return lines, service
 
 
+def _pieces_for_parcel(dn, lines, box_index, box_count):
+    """Return only the physical pieces assigned to the scanned parcel.
+
+    The parcel plan is the same source used to create the labels/AWBs. A
+    multi-box verification must never fall back to the whole Delivery Note:
+    doing so either asks the packer to duplicate products across boxes or
+    records a false short-pack. Incomplete plans are therefore a hard stop.
+    """
+    if cint(box_count) <= 1:
+        return lines, None
+    if not box_index:
+        return [], "Multi-box order — scan the AWB on the parcel in front of you."
+    try:
+        plan = json.loads(dn.get("custom_parcel_plan") or "[]")
+    except (TypeError, ValueError):
+        plan = []
+    if not plan or cint(box_index) > len(plan):
+        return [], ("Box {0} of {1} has no usable parcel plan. Do not seal it; "
+                    "set it aside for the line lead.".format(box_index, box_count))
+
+    wanted = {}
+    planned_codes = set()
+    for idx, parcel in enumerate(plan, 1):
+        for item in parcel.get("items") or []:
+            code = item.get("item_code")
+            if not code:
+                continue
+            planned_codes.add(code)
+            if idx == cint(box_index):
+                wanted[code] = wanted.get(code, 0) + flt(item.get("qty"))
+
+    # A physical DN line absent from every parcel plan is a release-data defect,
+    # not something the packer should guess a box for.
+    unplanned = sorted({row["item_code"] for row in lines
+                        if row["item_code"] not in planned_codes})
+    if unplanned:
+        return [], ("Parcel plan is missing: {0}. Do not seal; tell the line lead."
+                    .format(", ".join(unplanned)))
+
+    remaining = dict(wanted)
+    kept = []
+    for line in lines:
+        code = line["item_code"]
+        need = remaining.get(code, 0)
+        if need <= 0:
+            continue
+        qty = min(flt(line.get("qty")), need)
+        if qty > 0:
+            row = dict(line)
+            row["qty"] = qty
+            kept.append(row)
+            remaining[code] = need - qty
+    missing = sorted(code for code, qty in remaining.items() if qty > 0.001)
+    if missing:
+        return [], ("Parcel plan references unavailable contents: {0}. Do not seal; "
+                    "tell the line lead.".format(", ".join(missing)))
+    if not kept:
+        return [], ("No physical contents were resolved for Box {0}. Do not seal; "
+                    "tell the line lead.".format(box_index))
+    return kept, None
+
+
 def _sku_images(codes):
     """SKU -> a picture the packer can recognise at a glance.
 
@@ -140,10 +202,19 @@ def pack_verify_get(code):
         return {"status": "not_found", "message": "No order found for: " + code}
 
     dn = frappe.get_doc("Delivery Note", dn_name)
-    prior = frappe.get_all("D2C Pack Verify", filters={"delivery_note": dn_name},
+    if not awb:
+        return {"status": "need_parcel",
+                "message": "Multi-box order — scan each parcel's AWB barcode."}
+
+    prior = frappe.get_all("D2C Pack Verify", filters={"awb": awb},
                            fields=["name", "verified_at", "verified_by", "pieces_expected"],
                            limit_page_length=1)
     lines, service = _pieces_for_dn(dn_name)
+    lines, parcel_error = _pieces_for_parcel(dn, lines, box_index, box_count)
+    if parcel_error:
+        return {"status": "error", "message": parcel_error, "dn": dn_name,
+                "order": dn.get("shopify_order_number"), "awb": awb,
+                "box_index": box_index, "box_count": box_count}
     imgs = _sku_images({l["item_code"] for l in lines})
     for l in lines:
         l["image"] = imgs.get(l["item_code"])
@@ -152,6 +223,7 @@ def pack_verify_get(code):
     out = {
         "status": "already" if prior else "ok",
         "dn": dn_name,
+        "awb": awb,
         "order": dn.get("shopify_order_number") or dn.get("shopify_order_id"),
         "courier": dn.get("courier_partner"),
         "box_index": box_index,
@@ -184,18 +256,28 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
     code = (code or "").strip()
     if not code:
         return {"status": "error", "message": "Empty scan"}
+    photo_url = (photo_url or "").strip()
+    if not photo_url:
+        return {"status": "error",
+                "message": "A photo of the open box is mandatory before PACKED."}
 
     dn_name, awb, box_index, box_count = _resolve(code)
     if not dn_name:
         return {"status": "not_found", "message": "No order found for: " + code}
+    if not awb:
+        return {"status": "need_parcel",
+                "message": "Multi-box order — scan each parcel's AWB barcode."}
 
     dn = frappe.get_doc("Delivery Note", dn_name)
     lines, _service = _pieces_for_dn(dn_name)
+    lines, parcel_error = _pieces_for_parcel(dn, lines, box_index, box_count)
+    if parcel_error:
+        return {"status": "error", "message": parcel_error}
     expected = sum(l["qty"] for l in lines)
     confirmed = flt(pieces_confirmed) if pieces_confirmed is not None else expected
     mismatch = 1 if abs(confirmed - expected) > 0.001 else 0
 
-    existing = frappe.get_all("D2C Pack Verify", filters={"delivery_note": dn_name},
+    existing = frappe.get_all("D2C Pack Verify", filters={"awb": awb},
                               fields=["name"], limit_page_length=1)
     if existing:
         return {"status": "already", "dn": dn_name,
@@ -209,7 +291,8 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
             "shopify_order_number": dn.get("shopify_order_number"),
             "awb": awb,
             "courier": dn.get("courier_partner"),
-            "box_count": cint(dn.get("custom_box_count")) or 1,
+            "box_index": box_index or 1,
+            "box_count": box_count or 1,
             "prepare_batch": dn.get("custom_prepare_batch"),
             "pieces_expected": expected,
             "pieces_confirmed": confirmed,
@@ -224,10 +307,20 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
         })
         doc.flags.ignore_permissions = True
         doc.insert(ignore_permissions=True)
+        pairs = _awb_courier_pairs(dn)
+        required_awbs = [a for a, _courier in pairs if a] or [awb]
+        verified_rows = frappe.get_all(
+            "D2C Pack Verify",
+            filters={"delivery_note": dn_name, "awb": ["in", required_awbs],
+                     "mismatch": 0},
+            fields=["awb"], limit_page_length=0)
+        verified_awbs = {row.awb for row in verified_rows}
+        fully_verified = set(required_awbs).issubset(verified_awbs)
         if frappe.get_meta("Delivery Note").has_field("custom_pack_verified"):
             frappe.db.set_value("Delivery Note", dn_name,
-                                {"custom_pack_verified": 1,
-                                 "custom_pack_verified_at": now_datetime()},
+                                {"custom_pack_verified": 1 if fully_verified else 0,
+                                 "custom_pack_verified_at": (now_datetime()
+                                                             if fully_verified else None)},
                                 update_modified=False)
         frappe.db.commit()
     except Exception as e:
@@ -240,6 +333,11 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
         "dn": dn_name,
         "order": dn.get("shopify_order_number"),
         "record": doc.name,
+        "awb": awb,
+        "box_index": box_index or 1,
+        "box_count": box_count or 1,
+        "fully_verified": fully_verified,
+        "verified_boxes": len(verified_awbs),
         "pieces_expected": expected,
         "pieces_confirmed": confirmed,
         "message": ("COUNT MISMATCH — expected {0:g}, packer counted {1:g}. "

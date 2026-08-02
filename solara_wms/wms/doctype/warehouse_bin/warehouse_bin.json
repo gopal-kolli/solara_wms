@@ -12,6 +12,7 @@
     "zone_type",
     "status",
     "is_active",
+    "route_sequence",
     "section_break_location",
     "aisle",
     "rack",
@@ -46,7 +47,6 @@
       "fieldtype": "Data",
       "label": "Bin Code",
       "reqd": 1,
-      "unique": 1,
       "in_list_view": 1,
       "in_standard_filter": 1,
       "description": "Structured location code e.g. A-01-03-2 (Aisle-Rack-Shelf-Level)"
@@ -83,6 +83,15 @@
       "label": "Is Active",
       "default": "1",
       "description": "Maps to ModernWMS is_valid flag"
+    },
+    {
+      "fieldname": "route_sequence",
+      "fieldtype": "Int",
+      "label": "Pick Route Sequence",
+      "default": "0",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Warehouse-scoped walking order. Lower active locations are visited first."
     },
     {
       "fieldname": "section_break_location",

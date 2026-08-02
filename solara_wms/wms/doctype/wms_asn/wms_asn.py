@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
+from solara_wms.wms.safety import require_wms_mode
+
 
 class WMSASN(Document):
     """
@@ -146,7 +148,8 @@ class WMSASN(Document):
 
     @frappe.whitelist()
     def complete_asn(self):
-        """Putaway Created -> Completed. Creates Purchase Receipt."""
+        """Putaway Created -> Completed. Creates a draft Purchase Receipt."""
+        require_wms_mode("Draft Handoff")
         if self.status != "Putaway Created":
             frappe.throw(_("Only ASNs with Putaway Created status can be completed"))
 
@@ -176,8 +179,10 @@ class WMSASN(Document):
             if not pr.items:
                 error_log.append("No received items to create Purchase Receipt for.")
             else:
+                # Receiving confirmation is operational evidence, not approval
+                # to post inventory. The source PO/invoice and quantities must
+                # be reviewed before a Stock Manager submits this draft.
                 pr.insert()
-                pr.submit()
                 self.purchase_receipt = pr.name
 
         except Exception as e:

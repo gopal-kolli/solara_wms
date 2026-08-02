@@ -1,0 +1,41 @@
+{
+  "actions": [],
+  "autoname": "WMS-LOC-.#####",
+  "creation": "2026-08-02 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "item_code", "warehouse", "bin", "location_role", "priority", "is_active",
+    "quantity_section", "minimum_qty", "maximum_qty", "replenish_qty", "notes"
+  ],
+  "fields": [
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "bin", "fieldtype": "Link", "label": "Physical Bin", "options": "Warehouse Bin", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "location_role", "fieldtype": "Select", "label": "Location Role", "options": "Home\nReserve\nOverflow\nReceiving\nReturns\nQuarantine", "default": "Home", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "priority", "fieldtype": "Int", "label": "Allocation Priority", "default": "10", "description": "Lower values are preferred within the same role."},
+    {"fieldname": "is_active", "fieldtype": "Check", "label": "Is Active", "default": "1", "in_standard_filter": 1},
+    {"fieldname": "quantity_section", "fieldtype": "Section Break", "label": "Replenishment Policy"},
+    {"fieldname": "minimum_qty", "fieldtype": "Float", "label": "Minimum Quantity", "default": "0", "description": "Create a replenishment signal below this physical quantity."},
+    {"fieldname": "maximum_qty", "fieldtype": "Float", "label": "Maximum Quantity", "default": "0", "description": "Target capacity for this SKU at this location; zero means unspecified."},
+    {"fieldname": "replenish_qty", "fieldtype": "Float", "label": "Replenish Quantity", "default": "0", "description": "Fixed replenishment quantity; zero means fill to maximum."},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes"}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-02 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Item Location",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "write": 1, "create": 1, "delete": 0, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1, "write": 0, "create": 0, "delete": 0, "report": 1, "export": 1}
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "item_code",
+  "track_changes": 1
+}

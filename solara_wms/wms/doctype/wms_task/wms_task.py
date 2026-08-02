@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime, today
 
+from solara_wms.wms.safety import require_wms_mode
+
 
 class WMSTask(Document):
     """
@@ -114,12 +116,14 @@ class WMSTask(Document):
     @frappe.whitelist()
     def complete_task(self):
         """
-        Complete the task and create ERPNext stock documents.
+        Complete the task and, where an ERP warehouse boundary is crossed,
+        create a DRAFT ERPNext stock document for review.
         Maps to ModernWMS:
           - StockProcess: process_status false->true + ConfirmAdjustment (is_update_stock)
           - StockMove: move_status 0->1 (confirmed)
           - StockTaking: job_status false->true (finished)
         """
+        require_wms_mode("Draft Handoff")
         if self.status not in ("Assigned", "In Progress"):
             frappe.throw(_("Only Assigned or In Progress tasks can be completed"))
 
@@ -205,6 +209,12 @@ class WMSTask(Document):
           - StockMove: orig_goods_location_id -> dest_googs_location_id, move_status 0->1
           - StockProcess: ConfirmAdjustment subtracts source stock, adds target stock
         """
+        # Putaway and replenishment within one ERP warehouse are physical-bin
+        # movements only. Only a genuine ERP warehouse boundary warrants a
+        # Material Transfer draft.
+        if not self.source_warehouse or self.source_warehouse == self.target_warehouse:
+            return
+
         se = frappe.new_doc("Stock Entry")
         se.stock_entry_type = "Material Transfer"
         se.company = frappe.defaults.get_user_default("company") or "Win The Buy Box Private Limited"
@@ -226,8 +236,9 @@ class WMSTask(Document):
             return
 
         try:
+            # Warehouse-floor confirmation must never post to the accounting
+            # stock ledger.  A Stock Manager reviews and submits this draft.
             se.insert()
-            se.submit()
             self.stock_entry = se.name
         except Exception as e:
             error_log.append(f"Stock Entry creation failed: {str(e)}")
@@ -238,6 +249,12 @@ class WMSTask(Document):
         Moves items from source warehouse/bin to a staging/dispatch warehouse.
         Maps to ModernWMS Dispatch: pick_qty allocation -> stock decrement on delivery.
         """
+        # Moving between two physical bins in one ERPNext warehouse is an
+        # operational movement only. Creating a same-warehouse Stock Entry is
+        # both invalid and unnecessary; the future bin ledger records it.
+        if not self.target_warehouse or self.target_warehouse == self.source_warehouse:
+            return
+
         se = frappe.new_doc("Stock Entry")
         se.stock_entry_type = "Material Transfer"
         se.company = frappe.defaults.get_user_default("company") or "Win The Buy Box Private Limited"
@@ -260,7 +277,6 @@ class WMSTask(Document):
 
         try:
             se.insert()
-            se.submit()
             self.stock_entry = se.name
         except Exception as e:
             error_log.append(f"Stock Entry creation failed: {str(e)}")
@@ -299,8 +315,9 @@ class WMSTask(Document):
             })
 
         try:
+            # Variances require independent review. Keep the reconciliation in
+            # draft; completing a count must not change financial stock.
             sr.insert()
-            sr.submit()
             self.stock_reconciliation = sr.name
         except Exception as e:
             error_log.append(f"Stock Reconciliation creation failed: {str(e)}")

@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
+from solara_wms.wms.safety import require_wms_mode
+
 
 class WMSCycleCount(Document):
     """
@@ -120,6 +122,7 @@ class WMSCycleCount(Document):
         In Progress -> Completed.
         Calculates variances and creates Stock Reconciliation if needed.
         """
+        require_wms_mode("Draft Handoff")
         if self.status != "In Progress":
             frappe.throw(_("Only In Progress counts can be completed"))
 
@@ -142,12 +145,10 @@ class WMSCycleCount(Document):
                 else:
                     row.row_status = "Variance"
             else:
-                # Not counted - assume matched
-                row.counted_qty = row.book_qty
-                row.variance_qty = 0
-                row.variance_pct = 0
-                row.variance_value = 0
-                row.row_status = "Counted"
+                # A blank count is missing evidence, never an implicit match.
+                frappe.throw(
+                    _("Counted Quantity is required for item {0}").format(row.item_code)
+                )
 
         self.update_totals()
 
@@ -174,8 +175,9 @@ class WMSCycleCount(Document):
                         "batch_no": row.batch_no or "",
                     })
 
+                # Cycle-count approval must be segregated from counting. Create
+                # a draft only; a Stock Manager reviews and submits it.
                 sr.insert()
-                sr.submit()
                 self.stock_reconciliation = sr.name
 
             except Exception as e:

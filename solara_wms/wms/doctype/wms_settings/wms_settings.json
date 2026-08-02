@@ -1,0 +1,27 @@
+{
+  "actions": [],
+  "creation": "2026-08-02 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["safety_section", "operating_mode", "pilot_warehouse", "scope_note"],
+  "fields": [
+    {"fieldname": "safety_section", "fieldtype": "Section Break", "label": "Execution Safety"},
+    {"fieldname": "operating_mode", "fieldtype": "Select", "label": "Operating Mode", "options": "Disabled\nShadow\nDraft Handoff", "default": "Disabled", "reqd": 1, "description": "Disabled: no WMS completion. Shadow: observe/compare only. Draft Handoff: approved TEST workflows may prepare ERP drafts but never submit them."},
+    {"fieldname": "pilot_warehouse", "fieldtype": "Link", "label": "Pilot Warehouse", "options": "Warehouse", "description": "HYD/Shamshabad for the first controlled pilot. This is not an implicit fallback once multiple warehouses are active."},
+    {"fieldname": "scope_note", "fieldtype": "Small Text", "label": "Scope Note", "read_only": 1, "default": "Installing this app never activates warehouse execution. TEST sign-off and an explicit mode change are required."}
+  ],
+  "index_web_pages_for_search": 0,
+  "issingle": 1,
+  "istable": 0,
+  "modified": "2026-08-02 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "write": 1, "create": 1}
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

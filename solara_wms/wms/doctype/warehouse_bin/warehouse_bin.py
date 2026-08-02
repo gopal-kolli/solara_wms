@@ -1,3 +1,5 @@
+import hashlib
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -25,10 +27,20 @@ class WarehouseBin(Document):
       is_active    -> is_valid
     """
 
+    def autoname(self):
+        # Location codes such as FP-01 may be reused at another SOLARA site;
+        # the document identity is the warehouse + code pair.
+        self.generate_bin_code_if_empty()
+        key = "\x1f".join((self.warehouse or "", self.bin_code or ""))
+        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16].upper()
+        self.name = "WMS-BIN-" + digest
+
     def validate(self):
         self.calculate_volume()
         self.validate_warehouse()
         self.generate_bin_code_if_empty()
+        self.validate_unique_bin_code()
+        self.validate_route_sequence()
 
     def calculate_volume(self):
         """Auto-calculate volume from dimensions (ModernWMS: location_volume)"""
@@ -58,6 +70,26 @@ class WarehouseBin(Document):
             if self.level:
                 parts.append(self.level)
             self.bin_code = "-".join(parts)
+
+    def validate_route_sequence(self):
+        if (self.route_sequence or 0) < 0:
+            frappe.throw(_("Pick Route Sequence cannot be negative"))
+
+    def validate_unique_bin_code(self):
+        existing = frappe.db.exists(
+            "Warehouse Bin",
+            {
+                "warehouse": self.warehouse,
+                "bin_code": self.bin_code,
+                "name": ["!=", self.name or ""],
+            },
+        )
+        if existing:
+            frappe.throw(
+                _("Bin Code {0} already exists in warehouse {1}").format(
+                    self.bin_code, self.warehouse
+                )
+            )
 
     @frappe.whitelist()
     def set_status(self, new_status):

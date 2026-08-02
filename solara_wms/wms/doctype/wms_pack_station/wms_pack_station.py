@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
+from solara_wms.wms.safety import require_wms_mode
+
 
 class WMSPackStation(Document):
     """
@@ -11,10 +13,8 @@ class WMSPackStation(Document):
 
     Workflow: Draft -> Packing -> Completed
 
-    On completion:
-      - Creates Delivery Note (Draft)
-      - Creates Packing Slip (while DN is Draft)
-      - Submits DN
+    Legacy only. On completion it may prepare a Delivery Note and Packing Slip,
+    but it never posts stock. The live D2C pack-verify flow remains authoritative.
     """
 
     def validate(self):
@@ -203,6 +203,7 @@ class WMSPackStation(Document):
         Creates Delivery Note and Packing Slip.
         IMPORTANT: DN must be Draft when creating Packing Slip.
         """
+        require_wms_mode("Draft Handoff")
         if self.status != "Packing":
             frappe.throw(_("Only pack stations in Packing status can be completed"))
 
@@ -274,14 +275,6 @@ class WMSPackStation(Document):
 
             except Exception as e:
                 error_log.append(f"Packing Slip creation failed: {str(e)}")
-
-        # Step 3: Submit Delivery Note
-        if dn and self.delivery_note:
-            try:
-                dn.reload()
-                dn.submit()
-            except Exception as e:
-                error_log.append(f"Delivery Note submission failed: {str(e)}")
 
         self.completed_at = now_datetime()
         self.status = "Completed"

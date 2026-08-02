@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
+from solara_wms.wms.safety import require_wms_mode
+
 
 class WMSDispatch(Document):
     """
@@ -12,11 +14,8 @@ class WMSDispatch(Document):
     Workflow: Pending -> Allocated -> Picked -> Packed -> Weighed
               -> Dispatched -> Delivered
 
-    On dispatch:
-      - Creates Delivery Note (Draft)
-      - Creates Packing Slip (while DN is Draft)
-      - Submits Delivery Note
-      - Optionally creates Shipment with carrier/tracking info
+    Legacy only. The live Shopify D2C pipeline creates its Delivery Note before
+    this workflow. This controller may prepare drafts but never submits them.
     """
 
     def validate(self):
@@ -94,6 +93,7 @@ class WMSDispatch(Document):
         Creates Delivery Note, Packing Slip, and optionally Shipment.
         IMPORTANT: DN must be Draft when creating Packing Slip.
         """
+        require_wms_mode("Draft Handoff")
         if self.status != "Weighed":
             frappe.throw(_("Only Weighed dispatches can be dispatched"))
 
@@ -166,15 +166,8 @@ class WMSDispatch(Document):
             except Exception as e:
                 error_log.append(f"Packing Slip creation failed: {str(e)}")
 
-        # Step 3: Submit Delivery Note
-        if dn and self.delivery_note:
-            try:
-                dn.reload()
-                dn.submit()
-            except Exception as e:
-                error_log.append(f"Delivery Note submission failed: {str(e)}")
-
-        # Step 4: Create Shipment (optional)
+        # Step 3: Create Shipment draft (optional). Neither document is posted
+        # from a warehouse-floor action; both require review.
         if self.carrier and not error_log:
             try:
                 shipment = frappe.new_doc("Shipment")
@@ -190,7 +183,6 @@ class WMSDispatch(Document):
                 })
 
                 shipment.insert()
-                shipment.submit()
                 self.shipment = shipment.name
 
             except Exception as e:

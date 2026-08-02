@@ -55,6 +55,35 @@ class TestD2CPrepareBatch(TestCase):
         self.assertIsNone(result["pick_list_url"])
         self.assertEqual(result["labelled"], 0)
 
+    @patch.object(fulfillment, "_enrich_physical_lines")
+    @patch.object(fulfillment, "_build_pick_list_pdf")
+    @patch.object(fulfillment, "_build_combined_labels_pdf")
+    def test_appliance_express_is_removed_before_six_line_balance(
+        self, build_labels, build_pick, _enrich
+    ):
+        express = {"name": "DN-AF", "shopify_order_number": "SOL-AF",
+                   "custom_box_count": 1,
+                   "_lines": [{"item_code": "SOL-AF-501", "qty": 1,
+                                "bundle": None}]}
+        normal = {"name": "DN-CI", "shopify_order_number": "SOL-CI",
+                  "custom_box_count": 1,
+                  "_lines": [{"item_code": "SOL-CI-FP-104", "qty": 1,
+                               "bundle": None}], "_sortkey": (0, "CI", "DN-CI")}
+        build_labels.return_value = ("/private/files/labels.pdf", [])
+        build_pick.return_value = "/private/files/pick.pdf"
+        cfg = {"enabled": True, "appliance_skus": {"SOL-AF-501"},
+               "prekit_bundles": {"SOL-AF-501-SIL-BAS-P6-SPY-101"}}
+
+        result = fulfillment._render_batch_files(
+            [express, normal], "2026-08-03", 1, "08030900",
+            pack_lines=6, appliance_express=cfg)
+
+        self.assertEqual(result["parts"][0]["name"], "Appliance Express")
+        self.assertEqual(result["parts"][0]["orders"], 1)
+        self.assertEqual(result["parts"][1]["name"], "Line 1")
+        ordered = build_pick.call_args.args[0]
+        self.assertEqual([row["name"] for row in ordered], ["DN-AF", "DN-CI"])
+
 
 class _Row:
     """Stand-in for a Frappe doc/child row: attribute access + .get(), and a real

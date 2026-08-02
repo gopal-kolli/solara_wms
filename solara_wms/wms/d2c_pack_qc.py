@@ -170,7 +170,7 @@ def _parcel_context(code):
 def qc_stage(code, station=None, pieces_confirmed=None, duration_sec=None, packer=None):
     """Move one selected open parcel into its line QC bay without blocking line."""
     station = (station or "").strip()
-    if not station.startswith("Line "):
+    if not (station.startswith("Line ") or station == "Appliance Express"):
         return {"status": "error", "message": "A packing line is required."}
     ctx, error = _parcel_context(code)
     if error:

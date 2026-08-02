@@ -76,3 +76,17 @@ class TestWarehouseOpsMetrics(TestCase):
         self.assertEqual(out["quality"]["overdue_holds"], 1)
         self.assertEqual(out["quality"]["failures_caught"], 1)
         self.assertEqual(out["quality"]["status"], "active")
+
+    def test_appliance_express_is_attributed_separately(self):
+        now = datetime(2026, 8, 2, 18, 0)
+        pack = [{"station": "Appliance Express", "delivery_note": "DN-A",
+                 "awb": "AX1", "box_count": 1, "pieces_expected": 3,
+                 "mismatch": 0, "verified_at": now - timedelta(minutes=10)}]
+
+        out = build_metrics(pack, [], [], [], [],
+                            {"Appliance Express": now.isoformat()}, now)
+
+        self.assertEqual(out["appliance_express"]["status"], "active")
+        self.assertEqual(out["appliance_express"]["parcels"], 1)
+        self.assertEqual(out["appliance_express"]["parcels_per_hour"], 1)
+        self.assertEqual(out["packing"]["orders"], 1)

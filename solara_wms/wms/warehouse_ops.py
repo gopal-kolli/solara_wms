@@ -18,7 +18,7 @@ from frappe.utils import cint, flt, getdate, get_datetime, now_datetime, nowdate
 
 _HEARTBEAT_TTL = 180
 _ACTIVE_SECONDS = 120
-_KNOWN_STATIONS = {"Returns Station", "Security", "QC Inspector"}
+_KNOWN_STATIONS = {"Returns Station", "Security", "QC Inspector", "Appliance Express"}
 
 
 def _value(row, key, default=None):
@@ -72,7 +72,7 @@ def station_heartbeat(station):
 
 def _heartbeats(line_count):
     stations = ["Line " + str(i) for i in range(1, line_count + 1)]
-    stations += ["Returns Station", "Security", "QC Inspector"]
+    stations += ["Returns Station", "Security", "QC Inspector", "Appliance Express"]
     cache = _cache()
     out = {}
     for station in stations:
@@ -98,6 +98,25 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
     grouped = defaultdict(list)
     for row in pack_rows:
         grouped[_value(row, "station") or "Unassigned"].append(row)
+
+    def station_metrics(station):
+        rows = grouped.get(station, [])
+        recent = [r for r in rows
+                  if (_dt(_value(r, "verified_at")) or datetime.min) >= hour_ago]
+        last_scan = max((_dt(_value(r, "verified_at")) for r in rows
+                         if _value(r, "verified_at")), default=None)
+        heartbeat = _dt(heartbeats.get(station))
+        status = ("active" if heartbeat and
+                  (now - heartbeat).total_seconds() <= _ACTIVE_SECONDS else
+                  "idle" if last_scan and
+                  (now - last_scan).total_seconds() <= 15 * 60 else "offline")
+        return {"station": station, "status": status, "parcels": len(rows),
+                "orders": len({_value(r, "delivery_note") or _value(r, "awb")
+                               for r in rows}),
+                "pieces": round(sum(flt(_value(r, "pieces_expected"))
+                                    for r in rows), 1),
+                "parcels_per_hour": len(recent),
+                "last_scan_at": _iso(last_scan)}
 
     for number in range(1, line_count + 1):
         station = "Line " + str(number)
@@ -177,17 +196,19 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
     oldest_qc = min((_dt(_value(r, "staged_at")) for r in qc_open
                      if _value(r, "staged_at")), default=None)
 
+    express = station_metrics("Appliance Express")
     return {
         "generated_at": now.isoformat(),
         "line_count": line_count,
         "packing": {
             "parcels": len(pack_rows),
-            "orders": sum(line["orders"] for line in lines),
+            "orders": sum(line["orders"] for line in lines) + express["orders"],
             "pieces": round(sum(flt(_value(r, "pieces_expected")) for r in pack_rows), 1),
             "issues_caught": sum(cint(_value(r, "mismatch")) for r in pack_rows),
             "active_lines": sum(1 for line in lines if line["status"] == "active"),
             "lines": lines,
         },
+        "appliance_express": express,
         "returns": {
             "received": received,
             "processed": len(processed),

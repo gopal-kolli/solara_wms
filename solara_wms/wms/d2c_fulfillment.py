@@ -1726,8 +1726,10 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     # is the hard boundary that makes concurrent fetch/prepare scheduler jobs
     # safe: a label that arrives seconds late remains unbatched and is retried
     # in the next wave instead of being permanently marked as prepared.
+    from solara_wms.wms.d2c_appliance_express import express_config
     result = _render_batch_files(candidates, on_date, batch_no, stamp,
-                                 pack_lines=cint(settings.get("pack_lines")))
+                                 pack_lines=cint(settings.get("pack_lines")),
+                                 appliance_express=express_config(settings))
     missing = set(result["missing_labels"])
     dns = [d for d in candidates if _label_identity(d) not in missing]
     summary.update(result)
@@ -1849,8 +1851,9 @@ def _email_batch(batch_name, summary, settings):
         parts_note = ""
         if parts:
             rows = "".join(
-                "<li><b>Line {p}</b>: orders {a}&ndash;{b} ({o} orders / {pc:g} pcs)</li>"
-                .format(p=pt["part"], a=pt["order_range"][0], b=pt["order_range"][1],
+                "<li><b>{station}</b>: orders {a}&ndash;{b} ({o} orders / {pc:g} pcs)</li>"
+                .format(station=pt.get("name") or "Line " + str(pt["part"]),
+                        a=pt["order_range"][0], b=pt["order_range"][1],
                         o=pt["orders"], pc=pt.get("pieces") or 0)
                 for pt in parts)
             parts_note = ("<p><b>Line sections</b> — ONE file; a black divider page "
@@ -1920,8 +1923,9 @@ def _slack_batch(batch_name, summary, settings):
     if parts:
         lines.append("*Line sections* (one file — divider pages mark each line): "
                      + "  ·  ".join(
-                         "L{p} #{a}–{b} ({pc:g} pcs)".format(
-                             p=pt["part"], a=pt["order_range"][0],
+                         "{station} #{a}–{b} ({pc:g} pcs)".format(
+                             station=pt.get("name") or "Line " + str(pt["part"]),
+                             a=pt["order_range"][0],
                              b=pt["order_range"][1], pc=pt.get("pieces") or 0)
                          for pt in parts))
     by_c = summary.get("by_courier") or []
@@ -2012,8 +2016,10 @@ def reprint_batch(batch_name):
     dns = [d for d in dns if d["name"] in wanted]
     # Reuse the original stamp so a reprint regenerates the SAME filenames.
     stamp = batch.get("batch_stamp") or now_datetime().strftime("%m%d%H%M")
+    from solara_wms.wms.d2c_appliance_express import express_config
     result = _render_batch_files(dns, batch.date, batch.batch_no, stamp,
-                                 pack_lines=cint(settings.get("pack_lines")))
+                                 pack_lines=cint(settings.get("pack_lines")),
+                                 appliance_express=express_config(settings))
     # A reprint used to leave its output ORPHANED, which broke the batch it was
     # meant to repair (2026-07-28):
     #   * _save_output_file only sweeps prior same-name files that are UNATTACHED,
@@ -2087,7 +2093,8 @@ def _partition_for_pack_lines(dns, n):
     return [c for c in chunks if c]
 
 
-def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0):
+def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0,
+                        appliance_express=None):
     # Labels are the admission control for a batch. Build them first, then make
     # the pick list from the exact same successfully-labelled subset so the two
     # PDFs can never disagree and an unlabelled DN is never marked prepared.
@@ -2101,10 +2108,28 @@ def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0):
     parts = []
     if cint(pack_lines) > 1 and printable:
         _enrich_physical_lines(printable)   # piece counts for balancing (idempotent)
+        express_dns, normal_dns = [], printable
+        if appliance_express and appliance_express.get("enabled"):
+            from solara_wms.wms.d2c_appliance_express import classify_dn
+            express_dns, normal_dns = [], []
+            for d in printable:
+                d["_awb_pairs"] = _awb_courier_pairs(d)
+                (express_dns if classify_dn(d, appliance_express).get("eligible")
+                 else normal_dns).append(d)
+            printable = express_dns + normal_dns
         pos = 1
-        for i, chunk in enumerate(_partition_for_pack_lines(printable, pack_lines), 1):
+        if express_dns:
             parts.append({
-                "part": i,
+                "part": 0, "name": "Appliance Express", "kind": "express",
+                "orders": len(express_dns),
+                "pieces": sum(_dn_pieces(d) for d in express_dns),
+                "order_range": [pos, pos + len(express_dns) - 1],
+                "_names": [d["name"] for d in express_dns],
+            })
+            pos += len(express_dns)
+        for i, chunk in enumerate(_partition_for_pack_lines(normal_dns, pack_lines), 1):
+            parts.append({
+                "part": i, "name": "Line " + str(i), "kind": "packing_line",
                 "orders": len(chunk),
                 "pieces": sum(_dn_pieces(d) for d in chunk),
                 "order_range": [pos, pos + len(chunk) - 1],
@@ -2317,16 +2342,17 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
             chunk = [by_name[n] for n in pt.get("_names") or [] if n in by_name]
             if not chunk:
                 continue
+            station = pt.get("name") or "Line " + str(pt["part"])
             sections.append(
                 "<div style='page-break-before:always'></div>"
                 "<h2 style='font-size:26px;background:#000;color:#fff;padding:10px;"
-                "text-align:center;margin:0 0 2px'>LINE {p} / {n} &nbsp;·&nbsp; "
+                "text-align:center;margin:0 0 2px'>{station} &nbsp;·&nbsp; "
                 "orders {a}&ndash;{b} &nbsp;·&nbsp; {o} orders / {pc:g} pcs</h2>"
-                .format(p=pt["part"], n=len(parts), a=pt["order_range"][0],
+                .format(station=esc(station).upper(), a=pt["order_range"][0],
                         b=pt["order_range"][1], o=pt["orders"],
                         pc=pt.get("pieces") or 0)
-                + "<h3 style='margin:6px 0 3px'>B. PACK + QC — Line {p} "
-                  "(matches label sequence)</h3>".format(p=pt["part"])
+                + "<h3 style='margin:6px 0 3px'>B. PACK + QC — {station} "
+                  "(matches label sequence)</h3>".format(station=esc(station))
                 + B_TABLE.format(rows=pack_rows_html(chunk, pt["order_range"][0]))
             )
         section_b = "".join(sections)
@@ -2355,11 +2381,13 @@ def _line_separator_pdf_pages(part):
     html = (
         "<div style='font-family:Arial;text-align:center;margin-top:180px'>"
         "<div style='font-size:80px;font-weight:bold;background:#000;color:#fff;"
-        "padding:30px 0'>LINE {p}</div>"
+        "padding:30px 0'>{station}</div>"
         "<div style='font-size:34px;margin-top:24px'>orders {a}&ndash;{b}</div>"
         "<div style='font-size:24px;color:#555;margin-top:8px'>{o} orders &middot; "
-        "{pc:g} pieces &middot; hand this stack to Line {p}</div></div>"
-    ).format(p=part["part"], a=part["order_range"][0], b=part["order_range"][1],
+        "{pc:g} pieces &middot; hand this stack to {station}</div></div>"
+    ).format(station=frappe.utils.escape_html(
+                 part.get("name") or "Line " + str(part["part"])).upper(),
+             a=part["order_range"][0], b=part["order_range"][1],
              o=part["orders"], pc=part.get("pieces") or 0)
     return PdfReader(io.BytesIO(get_pdf(html))).pages
 

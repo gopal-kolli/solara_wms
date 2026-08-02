@@ -34,6 +34,9 @@
   "prepare_wave_hours",
   "prepare_lookback_days",
   "pack_lines",
+  "appliance_express_enabled",
+  "appliance_express_skus",
+  "appliance_express_bundles",
   "wave_email_recipients",
   "wave_slack_webhook",
   "ops_sheet_section",
@@ -332,6 +335,27 @@
    "default": "0",
    "label": "Pack Lines (split parts)",
    "description": "Number of assembly lines to split each batch's pick list + labels into (contiguous, piece-balanced parts, files suffixed -P1..-Pn). 0 or 1 = no split. The combined pair is always generated."
+  },
+  {
+   "default": "1",
+   "description": "Route eligible one-carton appliances and approved pre-kitted appliance bundles into the Appliance Express section before balancing the normal packing lines.",
+   "fieldname": "appliance_express_enabled",
+   "fieldtype": "Check",
+   "label": "Appliance Express Enabled"
+  },
+  {
+   "default": "SOL-AF-501\nSOL-AF-124\nSOL-JUC-121",
+   "description": "One SKU per line. A bare one-carton order for one of these appliance SKUs may use Appliance Express.",
+   "fieldname": "appliance_express_skus",
+   "fieldtype": "Small Text",
+   "label": "Appliance Express SKUs"
+  },
+  {
+   "default": "SOL-AF-501-SIL-BAS-P6-SPY-101\nSOL-AF-501-SIL-BASKET-P6-SPY-101",
+   "description": "One Product Bundle parent per line. Only bundles physically pre-kitted into the appliance carton belong here; loose combos stay on normal packing lines.",
+   "fieldname": "appliance_express_bundles",
+   "fieldtype": "Small Text",
+   "label": "Appliance Express Pre-kitted Bundles"
   },
   {
    "fieldname": "wave_email_recipients",

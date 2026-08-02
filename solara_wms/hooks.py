@@ -28,7 +28,7 @@ fixtures = [
     {"dt": "Role", "filters": [["name", "in", ["Returns Manager", "HQ Returns Reviewer"]]]},
     {"dt": "Workflow State", "filters": [["name", "in", ["Draft", "Pending HQ Review", "Approved", "Rejected"]]]},
     {"dt": "Workflow", "filters": [["name", "in", ["Return Intake Approval"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si", "Delivery Note-custom_shopify_fulfilled", "Delivery Note-custom_awb_shortfall", "Delivery Note-custom_box_count", "Delivery Note-custom_prepare_batch"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si", "Delivery Note-custom_shopify_fulfilled", "Delivery Note-custom_awb_shortfall", "Delivery Note-custom_box_count", "Delivery Note-custom_prepare_batch", "Sales Order-custom_opd_resolution_id", "Sales Order-custom_opd_auto_fulfill", "Sales Order-custom_opd_approval_snapshot", "Sales Order-custom_opd_approval_hash", "Sales Order-custom_opd_approved_by", "Sales Order-custom_opd_approved_at", "Delivery Note-custom_opd_resolution_id", "Delivery Note-custom_opd_approval_hash", "Sales Invoice-custom_opd_resolution_id", "Sales Invoice-custom_opd_approval_hash"]]]},
 ]
 
 # Document Events
@@ -46,6 +46,7 @@ scheduler_events = {
         # D2C fulfillment — both jobs are internally gated (no-op unless enabled
         # in D2C Fulfillment Settings), so wiring them here is safe by default.
         "*/15 * * * *": [
+            "solara_wms.wms.d2c_fulfillment.release_opd_replacements",
             "solara_wms.wms.d2c_fulfillment.release_d2c_shipments",
             "solara_wms.wms.d2c_fulfillment.fetch_d2c_labels",
             "solara_wms.wms.d2c_fulfillment.run_prepare_waves",

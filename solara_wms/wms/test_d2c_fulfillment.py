@@ -1,5 +1,5 @@
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 
@@ -65,6 +65,105 @@ class _Row:
 
     def get(self, key, default=None):
         return self.__dict__.get(key, default)
+
+
+class TestOpdReplacementEvidence(TestCase):
+    def _approved_so(self, **overrides):
+        snapshot = {
+            "version": 1,
+            "resolution_id": "RES-001",
+            "resolution_type": "replacement",
+            "approval_status": "captain_approved",
+            "approved_by": "captain@solara.in",
+            "approved_at": "2026-08-02T10:00:00+05:30",
+            "original_order_id": "SOL123",
+            "customer": "CUST-1",
+            "shipping_address_name": "ADDR-1",
+            "alternate_address": None,
+            "items": [{"item_code": "SOL-APP-X", "qty": 1, "rate": 0}],
+        }
+        raw = fulfillment.json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+        values = dict(
+            name="REP-2627-00001", po_no="RES-001", customer="CUST-1",
+            shipping_address_name="ADDR-1", net_total=0, grand_total=0,
+            taxes_and_charges=None, taxes=[],
+            custom_opd_resolution_id="RES-001",
+            custom_opd_approved_by="captain@solara.in",
+            custom_opd_approved_at="2026-08-02 10:00:00",
+            custom_opd_approval_snapshot=raw,
+            custom_opd_approval_hash=fulfillment._canonical_snapshot_hash(raw),
+            items=[_Row(item_code="SOL-APP-X", qty=1, rate=0,
+                        gst_treatment="Nil-Rated")],
+        )
+        values.update(overrides)
+        return _Row(**values)
+
+    def test_valid_approval_evidence_passes(self):
+        self.assertEqual(
+            fulfillment._validate_opd_replacement(
+                self._approved_so(), "Main Warehouse - WTBBPL", require_stock=False),
+            [],
+        )
+
+    def test_tampered_snapshot_is_rejected(self):
+        so = self._approved_so()
+        so.custom_opd_approval_snapshot += " "
+        errors = fulfillment._validate_opd_replacement(
+            so, "Main Warehouse - WTBBPL", require_stock=False)
+        self.assertIn("approval_snapshot_hash_mismatch", errors)
+
+    def test_nonzero_or_non_nil_line_is_rejected(self):
+        so = self._approved_so(
+            grand_total=499,
+            items=[_Row(item_code="SOL-APP-X", qty=1, rate=499,
+                        gst_treatment="Taxable")],
+        )
+        errors = fulfillment._validate_opd_replacement(
+            so, "Main Warehouse - WTBBPL", require_stock=False)
+        self.assertIn("replacement_not_zero_value", errors)
+        self.assertIn("non_zero_item_rate", errors)
+        self.assertIn("item_not_nil_rated", errors)
+
+    def test_alternate_address_is_rejected(self):
+        so = self._approved_so()
+        snapshot = fulfillment.json.loads(so.custom_opd_approval_snapshot)
+        snapshot["alternate_address"] = {"address_line1": "Different"}
+        raw = fulfillment.json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+        so.custom_opd_approval_snapshot = raw
+        so.custom_opd_approval_hash = fulfillment._canonical_snapshot_hash(raw)
+        errors = fulfillment._validate_opd_replacement(
+            so, "Main Warehouse - WTBBPL", require_stock=False)
+        self.assertIn("alternate_address_requires_manual_review", errors)
+
+    def test_tax_template_is_rejected_even_when_total_is_zero(self):
+        so = self._approved_so(taxes_and_charges="Shopify IGST 18% Inclusive - WTBBPL")
+        errors = fulfillment._validate_opd_replacement(
+            so, "Main Warehouse - WTBBPL", require_stock=False)
+        self.assertIn("replacement_tax_template_or_amount_present", errors)
+
+    @patch.object(fulfillment, "_settings")
+    @patch.object(fulfillment.frappe, "get_all")
+    def test_release_gate_off_does_not_query_orders(self, get_all, settings):
+        settings.return_value = frappe._dict(opd_replacement_release_enabled=0)
+        self.assertIsNone(fulfillment._release_opd_replacements())
+        get_all.assert_not_called()
+
+
+class TestOpdReplacementWaveScope(TestCase):
+    @patch.object(fulfillment.frappe, "get_all")
+    @patch.object(fulfillment.frappe, "get_meta")
+    def test_wave_selects_shopify_or_replacement_dns(self, get_meta, get_all):
+        meta = MagicMock()
+        meta.has_field.return_value = True
+        get_meta.return_value = meta
+        get_all.return_value = []
+
+        fulfillment._todays_d2c_dns(frappe._dict(prepare_lookback_days=1),
+                                    "2026-08-02")
+
+        call = get_all.call_args_list[0]
+        self.assertEqual(call.kwargs["or_filters"]["is_replacement"], 1)
+        self.assertEqual(call.kwargs["or_filters"]["shopify_order_id"], ["is", "set"])
 
 
 def _so(*lines):

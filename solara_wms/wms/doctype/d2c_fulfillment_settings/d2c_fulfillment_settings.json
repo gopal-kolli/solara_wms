@@ -16,6 +16,11 @@
   "clickpost_tracking_base",
   "clickpost_tracking_key",
   "dry_run",
+  "opd_replacement_section",
+  "opd_replacement_release_enabled",
+  "opd_replacement_dry_run",
+  "opd_replacement_batch_size",
+  "opd_replacement_so_prefix",
   "column_break_gates",
   "require_stock",
   "release_ppcod",
@@ -120,6 +125,39 @@
    "fieldname": "dry_run",
    "fieldtype": "Check",
    "label": "Dry Run (select only, no DN)"
+  },
+  {
+   "fieldname": "opd_replacement_section",
+   "fieldtype": "Section Break",
+   "label": "OPD Replacement Automation"
+  },
+  {
+   "default": "0",
+   "description": "Promote only captain-approved, evidence-hashed, zero-value REP drafts through SO submission and replacement DN creation. OFF by default on every site.",
+   "fieldname": "opd_replacement_release_enabled",
+   "fieldtype": "Check",
+   "label": "Release OPD Replacements"
+  },
+  {
+   "default": "1",
+   "description": "Validate and report eligible OPD replacements without submitting an SO or creating a DN. Keep ON for the TEST canary, then explicitly turn OFF after review.",
+   "fieldname": "opd_replacement_dry_run",
+   "fieldtype": "Check",
+   "label": "OPD Replacement Dry Run"
+  },
+  {
+   "default": "25",
+   "description": "Maximum OPD replacement candidates inspected per 15-minute run.",
+   "fieldname": "opd_replacement_batch_size",
+   "fieldtype": "Int",
+   "label": "OPD Replacement Batch Size"
+  },
+  {
+   "default": "REP-",
+   "description": "Fail-closed Sales Order prefix for free replacement orders.",
+   "fieldname": "opd_replacement_so_prefix",
+   "fieldtype": "Data",
+   "label": "OPD Replacement SO Prefix"
   },
   {
    "fieldname": "column_break_gates",

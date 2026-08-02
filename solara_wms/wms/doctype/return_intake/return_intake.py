@@ -240,6 +240,8 @@ class ReturnIntake(Document):
     def on_submit(self):
         # Submit fires for both Approved and Rejected (both docstatus 1).
         if self.workflow_state == "Rejected":
+            if self.get("return_parcel") and frappe.db.exists("D2C Return Parcel", self.return_parcel):
+                frappe.db.set_value("D2C Return Parcel", self.return_parcel, "status", "Rejected")
             return
         if self.return_dn_submitted:
             return
@@ -260,6 +262,11 @@ class ReturnIntake(Document):
         self.db_set("return_delivery_notes", ", ".join(created))
         self.db_set("return_dn_submitted", 1)
         self.db_set("error_log", "")
+        if self.get("return_parcel") and frappe.db.exists("D2C Return Parcel", self.return_parcel):
+            frappe.db.set_value("D2C Return Parcel", self.return_parcel, {
+                "status": "Approved",
+                "return_intake": self.name,
+            })
 
         links = ", ".join(
             f'<a href="/app/{"stock-entry" if self.update_stock_si else "delivery-note"}/{n}">{n}</a>'
@@ -367,3 +374,5 @@ class ReturnIntake(Document):
                 doc.flags.ignore_permissions = True
                 doc.cancel()
         self.db_set("return_dn_submitted", 0)
+        if self.get("return_parcel") and frappe.db.exists("D2C Return Parcel", self.return_parcel):
+            frappe.db.set_value("D2C Return Parcel", self.return_parcel, "status", "Pending HQ Review")

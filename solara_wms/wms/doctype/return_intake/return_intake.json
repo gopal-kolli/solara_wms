@@ -9,6 +9,7 @@
   "field_order": [
     "workflow_state",
     "sales_invoice",
+    "return_parcel",
     "customer",
     "customer_name",
     "company",
@@ -91,6 +92,14 @@
       "label": "Return Received Date",
       "default": "Today",
       "reqd": 1
+    },
+    {
+      "fieldname": "return_parcel",
+      "fieldtype": "Link",
+      "label": "Return Parcel",
+      "options": "D2C Return Parcel",
+      "read_only": 1,
+      "description": "Physical reverse-AWB receipt and QC evidence created by the Returns Station"
     },
     {
       "fieldname": "linked_delivery_notes",

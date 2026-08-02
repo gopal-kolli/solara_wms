@@ -1,0 +1,71 @@
+{
+ "actions": [],
+ "autoname": "format:RETP-{#####}",
+ "creation": "2026-08-02 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status", "reverse_awb", "courier", "return_type", "station", "holding_bin",
+  "section_order", "shopify_order_number", "customer_name", "delivery_note", "sales_invoice", "forward_awb", "lookup_code",
+  "section_reason", "customer_reason", "warehouse_finding", "claim_required", "exception", "notes",
+  "section_items", "items",
+  "section_evidence", "label_photo_url", "open_photo_url", "qc_evidence_url", "evidence_urls",
+  "section_result", "return_intake", "received_at", "received_by", "completed_at"
+ ],
+ "fields": [
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"QC In Progress\nPending HQ Review\nException\nApproved\nRejected","default":"QC In Progress","reqd":1,"in_list_view":1},
+  {"fieldname":"reverse_awb","fieldtype":"Data","label":"Reverse AWB","reqd":1,"unique":1,"in_list_view":1,
+   "description":"Unique physical return parcel. Duplicate scans resume the existing record instead of creating a second receipt."},
+  {"fieldname":"courier","fieldtype":"Data","label":"Courier","in_list_view":1},
+  {"fieldname":"return_type","fieldtype":"Select","label":"Return Type","options":"Customer Return\nRTO\nUnknown","default":"Unknown","reqd":1,"in_list_view":1},
+  {"fieldname":"station","fieldtype":"Data","label":"Returns Station"},
+  {"fieldname":"holding_bin","fieldtype":"Data","label":"Physical Holding Bin",
+   "description":"Physical returns holding location before HQ approval. This is not an ERP warehouse or stock posting."},
+
+  {"fieldname":"section_order","fieldtype":"Section Break","label":"Original Order"},
+  {"fieldname":"shopify_order_number","fieldtype":"Data","label":"Shopify Order","in_list_view":1},
+  {"fieldname":"customer_name","fieldtype":"Data","label":"Customer Name","read_only":1},
+  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Original Delivery Note","reqd":1},
+  {"fieldname":"sales_invoice","fieldtype":"Link","options":"Sales Invoice","label":"Original Sales Invoice","reqd":1},
+  {"fieldname":"forward_awb","fieldtype":"Data","label":"Original / Forward AWB"},
+  {"fieldname":"lookup_code","fieldtype":"Data","label":"Order Lookup Used"},
+
+  {"fieldname":"section_reason","fieldtype":"Section Break","label":"Return Reason and Finding"},
+  {"fieldname":"customer_reason","fieldtype":"Select","label":"Why It Returned","options":"\nCustomer refused\nCustomer unreachable\nAddress / delivery failure\nChanged mind\nCustomer reported defective\nCustomer reported damaged\nWrong / missing item reported\nOther"},
+  {"fieldname":"warehouse_finding","fieldtype":"Select","label":"Warehouse Finding","options":"\nNo fault found\nTransit damage\nUsed / customer damage\nMissing accessories\nWrong product\nEmpty parcel\nSerial mismatch\nPackaging damage only\nOther"},
+  {"fieldname":"claim_required","fieldtype":"Check","label":"Courier Claim Required","default":"0"},
+  {"fieldname":"exception","fieldtype":"Check","label":"Exception / No Automatic Receipt","default":"0","in_list_view":1},
+  {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"},
+
+  {"fieldname":"section_items","fieldtype":"Section Break","label":"Expected vs Received"},
+  {"fieldname":"items","fieldtype":"Table","options":"D2C Return Parcel Item","label":"Items","reqd":1},
+
+  {"fieldname":"section_evidence","fieldtype":"Section Break","label":"QC Evidence"},
+  {"fieldname":"label_photo_url","fieldtype":"Data","label":"Unopened Parcel / Label Photo","length":500},
+  {"fieldname":"open_photo_url","fieldtype":"Data","label":"Opened Parcel Photo","length":500},
+  {"fieldname":"qc_evidence_url","fieldtype":"Data","label":"QC / Serial / Damage Photo","length":500},
+  {"fieldname":"evidence_urls","fieldtype":"Code","options":"JSON","label":"Evidence Snapshot","read_only":1},
+
+  {"fieldname":"section_result","fieldtype":"Section Break","label":"Result"},
+  {"fieldname":"return_intake","fieldtype":"Link","options":"Return Intake","label":"Return Intake","read_only":1,"in_list_view":1},
+  {"fieldname":"received_at","fieldtype":"Datetime","label":"Received / QC Started At","read_only":1},
+  {"fieldname":"received_by","fieldtype":"Data","label":"Received By","read_only":1},
+  {"fieldname":"completed_at","fieldtype":"Datetime","label":"QC Submitted At","read_only":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "D2C Return Parcel",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"print":1,"read":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"read":1,"role":"Returns Manager","write":1},
+  {"read":1,"role":"HQ Returns Reviewer","write":1}
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

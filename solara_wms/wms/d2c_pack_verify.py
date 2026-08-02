@@ -77,38 +77,56 @@ def _pieces_for_parcel(dn, lines, box_index, box_count):
                     "set it aside for the line lead.".format(box_index, box_count))
 
     wanted = {}
-    planned_codes = set()
+    planned_qty = {}
     for idx, parcel in enumerate(plan, 1):
         for item in parcel.get("items") or []:
             code = item.get("item_code")
             if not code:
                 continue
-            planned_codes.add(code)
+            planned_qty[code] = planned_qty.get(code, 0) + flt(item.get("qty"))
             if idx == cint(box_index):
                 wanted[code] = wanted.get(code, 0) + flt(item.get("qty"))
 
     # A physical DN line absent from every parcel plan is a release-data defect,
-    # not something the packer should guess a box for.
+    # not something the packer should guess a box for. Parcel plans can name a
+    # Product Bundle parent while `lines` contains its exploded physical
+    # components, so either reference legitimately covers the physical line.
     unplanned = sorted({row["item_code"] for row in lines
-                        if row["item_code"] not in planned_codes})
+                        if row["item_code"] not in planned_qty
+                        and row.get("bundle") not in planned_qty})
     if unplanned:
         return [], ("Parcel plan is missing: {0}. Do not seal; tell the line lead."
                     .format(", ".join(unplanned)))
 
     remaining = dict(wanted)
+    bundle_codes = {row.get("bundle") for row in lines if row.get("bundle")}
+    resolved_bundles = set()
     kept = []
     for line in lines:
         code = line["item_code"]
         need = remaining.get(code, 0)
-        if need <= 0:
-            continue
-        qty = min(flt(line.get("qty")), need)
+        bundle = line.get("bundle")
+        qty = 0
+        if need > 0:
+            # Explicit component allocation takes precedence when a plan names
+            # the physical SKU directly.
+            qty = min(flt(line.get("qty")), need)
+            remaining[code] = need - qty
+        elif bundle and wanted.get(bundle, 0) > 0:
+            # The physical line quantity represents the full DN. Allocate the
+            # same fraction as this parcel's bundle-parent quantity, which also
+            # supports multiple units of one combo split across boxes.
+            total_bundle_qty = planned_qty.get(bundle, 0)
+            if total_bundle_qty > 0:
+                qty = flt(line.get("qty")) * wanted[bundle] / total_bundle_qty
+                resolved_bundles.add(bundle)
         if qty > 0:
             row = dict(line)
             row["qty"] = qty
             kept.append(row)
-            remaining[code] = need - qty
-    missing = sorted(code for code, qty in remaining.items() if qty > 0.001)
+    missing = sorted(code for code, qty in remaining.items()
+                     if qty > 0.001
+                     and not (code in bundle_codes and code in resolved_bundles))
     if missing:
         return [], ("Parcel plan references unavailable contents: {0}. Do not seal; "
                     "tell the line lead.".format(", ".join(missing)))

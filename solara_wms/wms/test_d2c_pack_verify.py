@@ -45,6 +45,53 @@ class TestParcelPieceResolution(TestCase):
         self.assertEqual(resolved, [])
         self.assertIn('JUICER', error)
 
+    def test_multibox_bundle_parent_resolves_exploded_components(self):
+        dn = _Doc(custom_parcel_plan=json.dumps([
+            {'items': [{'item_code': 'SOL-CI-C11', 'qty': 1}]},
+            {'items': [
+                {'item_code': 'SOL-TSKD-101', 'qty': 1},
+                {'item_code': 'SOL-TSFP-101', 'qty': 1},
+            ]},
+        ]))
+        combo_components = [
+            'SOL-CI-DT-101', 'SOL-CI-KD-102', 'SOL-CI-PNY-101',
+            'SOL-KIT-CHB-101', 'SOL-KIT-KNF-COM-P2', 'SOL-NWSPA-COM-P3',
+        ]
+        lines = [
+            {'item_code': code, 'item_name': code, 'qty': 1,
+             'bundle': 'SOL-CI-C11'}
+            for code in combo_components
+        ] + [
+            {'item_code': 'SOL-TSKD-101', 'item_name': 'Kadai', 'qty': 1},
+            {'item_code': 'SOL-TSFP-101', 'item_name': 'Fry Pan', 'qty': 1},
+        ]
+
+        first_box, first_error = pack_verify._pieces_for_parcel(dn, lines, 1, 2)
+        second_box, second_error = pack_verify._pieces_for_parcel(dn, lines, 2, 2)
+
+        self.assertIsNone(first_error)
+        self.assertEqual([row['item_code'] for row in first_box], combo_components)
+        self.assertIsNone(second_error)
+        self.assertEqual([row['item_code'] for row in second_box],
+                         ['SOL-TSKD-101', 'SOL-TSFP-101'])
+
+    def test_bundle_quantity_is_split_across_parcels(self):
+        dn = _Doc(custom_parcel_plan=json.dumps([
+            {'items': [{'item_code': 'COMBO', 'qty': 1}]},
+            {'items': [{'item_code': 'COMBO', 'qty': 1}]},
+        ]))
+        lines = [
+            {'item_code': 'COMPONENT-A', 'item_name': 'Component A',
+             'qty': 2, 'bundle': 'COMBO'},
+            {'item_code': 'COMPONENT-B', 'item_name': 'Component B',
+             'qty': 4, 'bundle': 'COMBO'},
+        ]
+
+        resolved, error = pack_verify._pieces_for_parcel(dn, lines, 1, 2)
+
+        self.assertIsNone(error)
+        self.assertEqual([row['qty'] for row in resolved], [1.0, 2.0])
+
     def test_submit_requires_photo_before_any_lookup(self):
         result = pack_verify.pack_verify_submit('AWB-1', photo_url=None)
 

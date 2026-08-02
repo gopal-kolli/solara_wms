@@ -1,0 +1,43 @@
+{
+ "actions": [],
+ "autoname": "format:PACKQC-{#####}",
+ "creation": "2026-08-02 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["delivery_note","shopify_order_number","awb","station","status","sample_reason","pieces_expected","contents","staged_at","staged_by","audited_at","audited_by","outcome_reason","barcode_scans","photo_url","duration_sec","recheck_count","pack_verify"],
+ "fields": [
+  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Delivery Note","reqd":1,"in_list_view":1},
+  {"fieldname":"shopify_order_number","fieldtype":"Data","label":"Order (SOL)","in_list_view":1},
+  {"fieldname":"awb","fieldtype":"Data","label":"AWB","reqd":1,"unique":1,"in_list_view":1,"description":"One independent-QC lifecycle per physical parcel."},
+  {"fieldname":"station","fieldtype":"Data","label":"Packing Line","reqd":1,"in_list_view":1},
+  {"fieldname":"status","fieldtype":"Select","options":"Pending\nFailed\nPassed\nWaived","label":"QC Status","reqd":1,"default":"Pending","in_list_view":1},
+  {"fieldname":"sample_reason","fieldtype":"Data","label":"Why Selected","in_list_view":1},
+  {"fieldname":"pieces_expected","fieldtype":"Float","label":"Pieces Expected"},
+  {"fieldname":"contents","fieldtype":"Code","options":"JSON","label":"Contents Snapshot","read_only":1},
+  {"fieldname":"staged_at","fieldtype":"Datetime","label":"Entered QC Bay","in_list_view":1},
+  {"fieldname":"staged_by","fieldtype":"Data","label":"Staged By"},
+  {"fieldname":"audited_at","fieldtype":"Datetime","label":"Last Audited At","in_list_view":1},
+  {"fieldname":"audited_by","fieldtype":"Data","label":"Inspector"},
+  {"fieldname":"outcome_reason","fieldtype":"Small Text","label":"Failure / Recheck Notes"},
+  {"fieldname":"barcode_scans","fieldtype":"Code","options":"JSON","label":"EAN and Manual Scan Evidence","read_only":1},
+  {"fieldname":"photo_url","fieldtype":"Data","label":"QC Open-box Photo","length":500},
+  {"fieldname":"duration_sec","fieldtype":"Int","label":"QC Seconds"},
+  {"fieldname":"recheck_count","fieldtype":"Int","label":"Rechecks","default":"0"},
+  {"fieldname":"pack_verify","fieldtype":"Link","options":"D2C Pack Verify","label":"Released Pack Verify"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "module": "WMS",
+ "modified": "2026-08-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "D2C Pack QC",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"print":1,"read":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"read":1,"role":"Stock User","write":1}
+ ],
+ "sort_field": "staged_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

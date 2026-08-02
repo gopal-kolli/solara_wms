@@ -57,3 +57,22 @@ class TestWarehouseOpsMetrics(TestCase):
         self.assertEqual(out["returns"]["pending_review"], 2)
         self.assertEqual(out["dispatch"]["parcels"], 1)
         self.assertEqual(out["dispatch"]["waiting_parcels"], 1)
+
+    def test_independent_qc_queue_and_line_results_are_visible(self):
+        now = datetime(2026, 8, 2, 18, 0)
+        qc = [
+            {"station": "Line 1", "status": "Passed", "recheck_count": 0,
+             "staged_at": now - timedelta(minutes=4), "duration_sec": 120},
+            {"station": "Line 2", "status": "Failed", "recheck_count": 1,
+             "staged_at": now - timedelta(minutes=8), "duration_sec": 150},
+        ]
+
+        out = build_metrics([], [], [], [], [], {"QC Inspector": now.isoformat()},
+                            now, line_count=2, qc_rows=qc)
+
+        self.assertEqual(out["packing"]["lines"][0]["qc_passed"], 1)
+        self.assertEqual(out["packing"]["lines"][1]["qc_failures"], 1)
+        self.assertEqual(out["quality"]["open_holds"], 1)
+        self.assertEqual(out["quality"]["overdue_holds"], 1)
+        self.assertEqual(out["quality"]["failures_caught"], 1)
+        self.assertEqual(out["quality"]["status"], "active")

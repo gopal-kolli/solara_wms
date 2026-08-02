@@ -203,7 +203,7 @@ def _sku_images(codes):
 
 
 @frappe.whitelist()
-def pack_verify_get(code):
+def pack_verify_get(code, station=None):
     """Scan at the bench -> what to pack. Returns:
       status: ok | not_found | already | error
       order, dn, courier, box_index, box_count, awbs[]
@@ -252,6 +252,13 @@ def pack_verify_get(code):
         "total_pieces": total,
         "printed_batch": dn.get("custom_prepare_batch"),
     }
+    if not prior:
+        try:
+            from solara_wms.wms.d2c_pack_qc import qc_state
+            out.update(qc_state(awb, lines, station=(station or "").strip()))
+        except Exception:
+            _log("D2C Pack QC", "selection failed (pack continues)\n" + frappe.get_traceback())
+            out.update({"qc_required": False, "qc_staged": False})
     if prior:
         p = prior[0]
         out["message"] = ("ALREADY PACK-VERIFIED " + str(p.verified_at)[:16]
@@ -261,7 +268,8 @@ def pack_verify_get(code):
 
 @frappe.whitelist()
 def pack_verify_submit(code, pieces_confirmed=None, station=None,
-                       photo_url=None, notes=None, duration_sec=None):
+                       photo_url=None, notes=None, duration_sec=None,
+                       qc_record=None):
     """Record the pack verification. `pieces_confirmed` is what the packer
     actually counted into the box; a mismatch against the expected count is
     stored and flagged rather than silently accepted — the point is to catch the
@@ -301,6 +309,15 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
         return {"status": "already", "dn": dn_name,
                 "order": dn.get("shopify_order_number"),
                 "message": "Already pack-verified — no second record created."}
+
+    qc_rows = frappe.get_all("D2C Pack QC", filters={"awb": awb},
+                             fields=["name", "status"], limit_page_length=1)
+    if qc_rows:
+        qc = qc_rows[0]
+        authorised_release = (qc_record and qc_record == qc.name)
+        if qc.status in ("Pending", "Failed") and not authorised_release:
+            return {"status": "qc_hold",
+                    "message": "QC HOLD — independent QC must pass before sealing."}
 
     try:
         doc = frappe.get_doc({

@@ -18,7 +18,7 @@ from frappe.utils import cint, flt, getdate, get_datetime, now_datetime, nowdate
 
 _HEARTBEAT_TTL = 180
 _ACTIVE_SECONDS = 120
-_KNOWN_STATIONS = {"Returns Station", "Security"}
+_KNOWN_STATIONS = {"Returns Station", "Security", "QC Inspector"}
 
 
 def _value(row, key, default=None):
@@ -72,7 +72,7 @@ def station_heartbeat(station):
 
 def _heartbeats(line_count):
     stations = ["Line " + str(i) for i in range(1, line_count + 1)]
-    stations += ["Returns Station", "Security"]
+    stations += ["Returns Station", "Security", "QC Inspector"]
     cache = _cache()
     out = {}
     for station in stations:
@@ -86,11 +86,15 @@ def _heartbeats(line_count):
 
 def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
                   dispatched_awbs, heartbeats, now, line_count=6,
-                  pending_return_count=0):
+                  pending_return_count=0, qc_rows=None):
     """Pure aggregation shared by the API and tests."""
     now = _dt(now) or datetime.now()
     hour_ago = now - timedelta(hours=1)
     lines = []
+    qc_rows = qc_rows or []
+    qc_by_station = defaultdict(list)
+    for row in qc_rows:
+        qc_by_station[_value(row, "station") or "Unassigned"].append(row)
     grouped = defaultdict(list)
     for row in pack_rows:
         grouped[_value(row, "station") or "Unassigned"].append(row)
@@ -139,6 +143,10 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
                                      for r in recent}),
             "pieces_per_hour": round(sum(flt(_value(r, "pieces_expected"))
                                           for r in recent), 1),
+            "qc_passed": sum(1 for r in qc_by_station.get(station, [])
+                               if _value(r, "status") == "Passed"),
+            "qc_failures": sum(cint(_value(r, "recheck_count"))
+                                for r in qc_by_station.get(station, [])),
         })
 
     received = len(return_rows)
@@ -161,6 +169,13 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
                and _value(r, "awb") not in dispatched_awbs]
     oldest_wait = min((_dt(_value(r, "verified_at")) for r in waiting
                        if _value(r, "verified_at")), default=None)
+
+    qc_open = [r for r in qc_rows if _value(r, "status") in ("Pending", "Failed")]
+    qc_passed = [r for r in qc_rows if _value(r, "status") == "Passed"]
+    qc_durations = [cint(_value(r, "duration_sec")) for r in qc_passed
+                    if cint(_value(r, "duration_sec")) > 0]
+    oldest_qc = min((_dt(_value(r, "staged_at")) for r in qc_open
+                     if _value(r, "staged_at")), default=None)
 
     return {
         "generated_at": now.isoformat(),
@@ -195,6 +210,21 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
                        (now - _dt(heartbeats.get("Security"))).total_seconds()
                        <= _ACTIVE_SECONDS else "offline"),
         },
+        "quality": {
+            "open_holds": len(qc_open),
+            "failed_holds": sum(1 for r in qc_open if _value(r, "status") == "Failed"),
+            "passed": len(qc_passed),
+            "failures_caught": sum(cint(_value(r, "recheck_count")) for r in qc_rows),
+            "avg_qc_sec": (round(sum(qc_durations) / len(qc_durations), 1)
+                           if qc_durations else None),
+            "oldest_hold_at": _iso(oldest_qc),
+            "overdue_holds": sum(1 for r in qc_open
+                                  if _dt(_value(r, "staged_at")) and
+                                  (now - _dt(_value(r, "staged_at"))).total_seconds() > 300),
+            "status": ("active" if _dt(heartbeats.get("QC Inspector")) and
+                       (now - _dt(heartbeats.get("QC Inspector"))).total_seconds()
+                       <= _ACTIVE_SECONDS else "offline"),
+        },
     }
 
 
@@ -226,8 +256,19 @@ def warehouse_ops_summary(on_date=None, line_count=6):
         "D2C Dispatch Scan", filters={"awb": ["in", pack_awbs]}, fields=["awb"],
         limit_page_length=0) if pack_awbs else []
     pending = frappe.db.count("D2C Return Parcel", {"status": "Pending HQ Review"})
+    qc_today = frappe.get_all(
+        "D2C Pack QC", filters={"staged_at": ["between", [start, end]]},
+        fields=["name", "station", "status", "staged_at", "audited_at",
+                "duration_sec", "recheck_count"], limit_page_length=0)
+    qc_names = {_value(row, "name") for row in qc_today}
+    qc_open = frappe.get_all(
+        "D2C Pack QC", filters={"status": ["in", ["Pending", "Failed"]]},
+        fields=["name", "station", "status", "staged_at", "audited_at",
+                "duration_sec", "recheck_count"], limit_page_length=0)
+    qc_rows = qc_today + [row for row in qc_open if _value(row, "name") not in qc_names]
     return build_metrics(
         pack_rows, return_rows, return_items, dispatch_rows,
         [_value(row, "awb") for row in dispatched],
         _heartbeats(line_count) if day == getdate(nowdate()) else {},
-        now_datetime(), line_count=line_count, pending_return_count=pending)
+        now_datetime(), line_count=line_count, pending_return_count=pending,
+        qc_rows=qc_rows)

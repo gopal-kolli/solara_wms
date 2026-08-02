@@ -44,6 +44,7 @@ Reversibility is already handled by the installed base: "Cancel Clickpost
 Shipment" voids the AWB on DN cancel. This module never cancels or deletes.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -61,6 +62,9 @@ DEFAULT_PREFIX = "SHP"
 # Deferred-invoice SI (raised after the label is fetched, not at DN submit).
 SI_SERIES = "SHPSI27-.#####"
 D2C_INCOME_ACCOUNT = "Sales - WTBBPL"
+OPD_REPLACEMENT_PREFIX = "REP-"
+REPLACEMENT_COST_ACCOUNT = "Replacement/Warranty Cost - WTBBPL"
+OPD_APPROVAL_STATUSES = {"approved", "captain_approved"}
 
 # Batch pick-list/labels PDFs are private Files attached to a D2C Prepare Batch,
 # readable in Atlas only by System Manager / Returns Manager. Non-admin wave-email
@@ -394,6 +398,189 @@ def _log(title, message):
     frappe.log_error(message=message, title=title)
 
 
+def _opd_replacement_prefix(settings):
+    return (settings.get("opd_replacement_so_prefix") or OPD_REPLACEMENT_PREFIX).strip()
+
+
+def _canonical_snapshot_hash(snapshot):
+    """Hash the exact canonical snapshot written by OPD (UTF-8 SHA-256)."""
+    return hashlib.sha256((snapshot or "").encode("utf-8")).hexdigest()
+
+
+def _opd_snapshot_lines(snapshot):
+    return sorted(
+        (str(row.get("item_code") or ""), flt(row.get("qty")), flt(row.get("rate")))
+        for row in snapshot.get("items", [])
+    )
+
+
+def _so_snapshot_lines(so):
+    return sorted(
+        (str(row.get("item_code") or ""), flt(row.get("qty")), flt(row.get("rate")))
+        for row in so.items
+    )
+
+
+def _validate_opd_replacement(so, warehouse, require_stock=True):
+    """Fail-closed validation of OPD's captain-approved free replacement.
+
+    OPD supplies evidence; this internal worker re-verifies it immediately before
+    submission.  Any commercial value, address override, changed line, or tampered
+    snapshot routes the order back to manual review.
+    """
+    errors = []
+    resolution_id = str(so.get("custom_opd_resolution_id") or "").strip()
+    snapshot_raw = so.get("custom_opd_approval_snapshot") or ""
+    stored_hash = str(so.get("custom_opd_approval_hash") or "").strip().lower()
+
+    if not resolution_id or str(so.get("po_no") or "").strip() != resolution_id:
+        errors.append("resolution_id_or_po_no_mismatch")
+    if not so.get("custom_opd_approved_by") or not so.get("custom_opd_approved_at"):
+        errors.append("approval_actor_or_time_missing")
+    if not snapshot_raw or len(stored_hash) != 64:
+        errors.append("approval_snapshot_or_hash_missing")
+        snapshot = {}
+    else:
+        if _canonical_snapshot_hash(snapshot_raw) != stored_hash:
+            errors.append("approval_snapshot_hash_mismatch")
+        try:
+            snapshot = json.loads(snapshot_raw)
+        except Exception:
+            snapshot = {}
+            errors.append("approval_snapshot_invalid_json")
+
+    if snapshot:
+        if str(snapshot.get("resolution_id") or "") != resolution_id:
+            errors.append("snapshot_resolution_mismatch")
+        if str(snapshot.get("approval_status") or "").lower() not in OPD_APPROVAL_STATUSES:
+            errors.append("snapshot_not_approved")
+        if str(snapshot.get("approved_by") or "") != str(so.get("custom_opd_approved_by") or ""):
+            errors.append("snapshot_approver_mismatch")
+        snapshot_approved_at = str(snapshot.get("approved_at") or "").replace("T", " ")
+        header_approved_at = str(so.get("custom_opd_approved_at") or "").replace("T", " ")
+        if snapshot_approved_at[:19] != header_approved_at[:19]:
+            errors.append("snapshot_approval_time_mismatch")
+        if snapshot.get("alternate_address"):
+            errors.append("alternate_address_requires_manual_review")
+        if str(snapshot.get("customer") or "") != str(so.get("customer") or ""):
+            errors.append("snapshot_customer_mismatch")
+        if str(snapshot.get("shipping_address_name") or "") != str(so.get("shipping_address_name") or ""):
+            errors.append("snapshot_address_mismatch")
+        if _opd_snapshot_lines(snapshot) != _so_snapshot_lines(so):
+            errors.append("snapshot_items_mismatch")
+
+    if not so.get("shipping_address_name"):
+        errors.append("shipping_address_missing")
+    if abs(flt(so.get("net_total"))) > 0.01 or abs(flt(so.get("grand_total"))) > 0.01:
+        errors.append("replacement_not_zero_value")
+    if so.get("taxes_and_charges") or any(
+        abs(flt(row.get("tax_amount"))) > 0.01 for row in (so.get("taxes") or [])
+    ):
+        errors.append("replacement_tax_template_or_amount_present")
+    for row in so.items:
+        if not row.get("item_code") or flt(row.get("qty")) <= 0:
+            errors.append("invalid_item_or_qty")
+        if abs(flt(row.get("rate"))) > 0.01:
+            errors.append("non_zero_item_rate")
+        if (row.get("gst_treatment") or "") != "Nil-Rated":
+            errors.append("item_not_nil_rated")
+        if require_stock and row.get("item_code"):
+            available = get_available_qty(row.item_code, warehouse)
+            if flt(available.get("actual_qty")) < flt(row.qty):
+                errors.append("insufficient_stock:{0}".format(row.item_code))
+    return sorted(set(errors))
+
+
+def release_opd_replacements():
+    """*/15 internal promoter: approved REP draft -> submitted SO -> submitted DN.
+
+    The feature is dormant until its dedicated setting is enabled.  Every order
+    is isolated so one rejected/tampered replacement cannot block the queue.
+    """
+    try:
+        return _release_opd_replacements()
+    except Exception:
+        frappe.db.rollback()
+        _log("OPD Replacement Release", "FATAL (swallowed): " + frappe.get_traceback())
+        return None
+
+
+def _release_opd_replacements():
+    settings = _settings()
+    if not cint(settings.get("opd_replacement_release_enabled")):
+        return None
+
+    limit = cint(settings.get("opd_replacement_batch_size")) or 25
+    dry_run = cint(settings.get("opd_replacement_dry_run"))
+    warehouse = _source_warehouse(settings)
+    require_stock = cint(settings.get("require_stock"))
+    rows = frappe.get_all(
+        "Sales Order",
+        filters={
+            "name": ["like", _opd_replacement_prefix(settings) + "%"],
+            "custom_opd_auto_fulfill": 1,
+            "docstatus": ["in", [0, 1]],
+        },
+        fields=["name"], order_by="creation asc", limit_page_length=limit,
+    )
+    existing = _sos_with_existing_dn([r.name for r in rows])
+    result = {"eligible": 0, "released": 0, "resumed": 0, "rejected": 0, "failed": 0,
+              "delivery_notes": [], "exceptions": []}
+
+    for row in rows:
+        so_name = row.name
+        if so_name in existing:
+            result["resumed"] += 1
+            continue
+        savepoint = "opdrep_" + so_name.replace("-", "_")[:40]
+        try:
+            frappe.db.savepoint(savepoint)
+            # Serialize scheduler/manual overlap for one resolution. Re-check the
+            # DN link after acquiring the lock because the initial bulk lookup may
+            # be stale by the time this worker reaches the row.
+            frappe.db.get_value("Sales Order", so_name, "name", for_update=True)
+            if frappe.db.exists(
+                "Delivery Note Item",
+                {"against_sales_order": so_name, "docstatus": ["<", 2]},
+            ):
+                result["resumed"] += 1
+                frappe.db.rollback(save_point=savepoint)
+                continue
+            so = frappe.get_doc("Sales Order", so_name)
+            errors = _validate_opd_replacement(so, warehouse, require_stock=require_stock)
+            if errors:
+                result["rejected"] += 1
+                result["exceptions"].append({"so": so_name, "errors": errors})
+                frappe.db.rollback(save_point=savepoint)
+                continue
+            if dry_run:
+                result["eligible"] += 1
+                frappe.db.rollback(save_point=savepoint)
+                continue
+            if so.docstatus == 0:
+                so.flags.ignore_permissions = True
+                so.submit()
+            release_result = {"failed": 0, "failures": []}
+            dn_name = _make_and_submit_dn(
+                so_name, warehouse, release_result, box_count=1,
+                is_replacement=True,
+                opd_resolution_id=so.get("custom_opd_resolution_id"),
+                opd_approval_hash=so.get("custom_opd_approval_hash"),
+            )
+            if not dn_name:
+                raise RuntimeError((release_result.get("failures") or [{"err": "DN creation failed"}])[-1]["err"])
+            result["released"] += 1
+            result["delivery_notes"].append({"so": so_name, "dn": dn_name})
+        except Exception as exc:
+            frappe.db.rollback(save_point=savepoint)
+            result["failed"] += 1
+            result["exceptions"].append({"so": so_name, "errors": [str(exc)[:300]]})
+
+    if result["eligible"] or result["released"] or result["rejected"] or result["failed"]:
+        _log("OPD Replacement Release", json.dumps(result)[:8000])
+    return result
+
+
 # ─── RELEASE JOB: eligible SHP SO → Delivery Note ─────────────────
 
 def release_d2c_shipments(force=False):
@@ -673,7 +860,9 @@ def _run_release(settings, dry_run=False, from_date=None, to_date=None):
     return res
 
 
-def _make_and_submit_dn(so_name, warehouse, res, box_count=1, parcel_plan=None):
+def _make_and_submit_dn(so_name, warehouse, res, box_count=1, parcel_plan=None,
+                        is_replacement=False, opd_resolution_id=None,
+                        opd_approval_hash=None):
     """One savepoint-isolated SO→DN release. Returns DN name or None."""
     from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 
@@ -686,12 +875,20 @@ def _make_and_submit_dn(so_name, warehouse, res, box_count=1, parcel_plan=None):
         for row in dn.items:
             if not row.warehouse:
                 row.warehouse = warehouse
+            if is_replacement:
+                row.expense_account = REPLACEMENT_COST_ACCOUNT
         # Defer invoicing: this DN is submitted EARLY (before physical dispatch)
         # only to create the AWB + label for packing. Flag it so the LIVE
         # "Auto Create SI on Shopify DN Submit" script skips it — the SHPSI27 is
         # raised later, after dispatch, via the evening D2C Invoice Run. (Manual
         # sheet-flow DNs are unflagged and keep invoicing at submit as before.)
         dn.custom_d2c_defer_si = 1
+        if is_replacement:
+            dn.is_replacement = 1
+            if dn.meta.has_field("custom_opd_resolution_id"):
+                dn.custom_opd_resolution_id = opd_resolution_id
+            if dn.meta.has_field("custom_opd_approval_hash"):
+                dn.custom_opd_approval_hash = opd_approval_hash
         # Expected physical boxes — the AWB guard blocks label/invoice/dispatch if
         # the courier mints fewer AWBs than this, so a multi-box order can never
         # ship a parcel short.
@@ -748,7 +945,7 @@ def _fetch_d2c_labels():
 
     fields = ["name", "shipping_label", "awb_number", "courier_partner",
               "custom_d2c_defer_si", "per_billed", "shopify_order_id",
-              "custom_shopify_fulfilled"]
+              "custom_shopify_fulfilled", "is_replacement"]
     meta = frappe.get_meta("Delivery Note")
     for f in ("custom_awb_2", "custom_courier_2", "custom_box_count",
               "custom_awb_shortfall", "custom_awb_list"):
@@ -811,7 +1008,9 @@ def _fetch_d2c_labels():
                         dn.name, len(_awb_courier_pairs(dn)), box_count))
                 continue
             # Fulfillment first — needs only the AWB, so it never waits on the label.
-            if do_fulfill and not cint(dn.get("custom_shopify_fulfilled")):
+            if (do_fulfill and dn.get("shopify_order_id")
+                    and not cint(dn.get("is_replacement"))
+                    and not cint(dn.get("custom_shopify_fulfilled"))):
                 outcome = _try_fulfill(dn)
                 if outcome in ("created", "updated", "repaired", "in_sync"):
                     frappe.db.set_value("Delivery Note", dn.name,
@@ -1221,7 +1420,8 @@ def create_si_from_deferred_dn(dn_name):
         if item.get("against_sales_order"):
             so_name = item.against_sales_order
             break
-    if not so_name or not so_name.startswith("SHP"):
+    is_replacement = bool(so_name and so_name.startswith(OPD_REPLACEMENT_PREFIX))
+    if not so_name or not (so_name.startswith("SHP") or is_replacement):
         return None
 
     # Serialize double-invoicing: lock the SO row (FOR UPDATE) before the per_billed
@@ -1253,13 +1453,23 @@ def create_si_from_deferred_dn(dn_name):
     else:
         si.due_date = doc.posting_date
 
-    # Tax-inclusive pricing (matches the Shopify customer-paying total).
-    for t in si.taxes:
-        t.included_in_print_rate = 1
+    if is_replacement:
+        si.set("taxes", [])
+        if si.meta.has_field("custom_opd_resolution_id"):
+            si.custom_opd_resolution_id = doc.get("custom_opd_resolution_id")
+        if si.meta.has_field("custom_opd_approval_hash"):
+            si.custom_opd_approval_hash = doc.get("custom_opd_approval_hash")
+    else:
+        # Tax-inclusive pricing (matches the Shopify customer-paying total).
+        for t in si.taxes:
+            t.included_in_print_rate = 1
 
     # Force Shopify revenue to Sales - WTBBPL (override channel-specific defaults).
     for it in si.items:
         it.income_account = D2C_INCOME_ACCOUNT
+        if is_replacement:
+            it.rate = 0
+            it.gst_treatment = "Nil-Rated"
 
     si.flags.ignore_permissions = True
     si.insert()
@@ -1393,7 +1603,6 @@ def _todays_d2c_dns(settings, on_date):
     Stable pack sequence: batch identical single-SKU orders together, then by AWB."""
     start = add_days(on_date, -_prepare_lookback(settings))
     filters = {
-        "shopify_order_id": ["is", "set"],
         "docstatus": 1,
         "posting_date": ["between", [start, on_date]],
     }
@@ -1409,18 +1618,21 @@ def _todays_d2c_dns(settings, on_date):
         filters["custom_awb_shortfall"] = 0
     fields = ["name", "awb_number", "courier_partner", "customer",
               "customer_name", "shopify_order_id", "shopify_order_number",
-              "shipping_label", "custom_box_count"]
+              "shipping_label", "custom_box_count", "is_replacement"]
+    or_filters = {"shopify_order_id": ["is", "set"], "is_replacement": 1}
     # Multi-parcel AWBs. WITHOUT these the pick list can only print awb_number and
     # silently under-reports every 2-4 box order (the labels PDF, which uses
     # _awb_courier_pairs, shows them all) — the sheet then looks like it has
     # "extra duplicate labels" and the floor de-dups real parcels away.
     meta = frappe.get_meta("Delivery Note")
-    for f in ("custom_awb_2", "custom_courier_2", "custom_awb_list"):
+    for f in ("custom_awb_2", "custom_courier_2", "custom_awb_list",
+              "custom_opd_resolution_id"):
         if meta.has_field(f):
             fields.append(f)
     dns = frappe.get_all(
         "Delivery Note",
         filters=filters,
+        or_filters=or_filters,
         fields=fields,
         limit_page_length=0,
     )
@@ -1462,7 +1674,8 @@ def _batched_dn_names(on_date, lookback=1):
 
 def _label_identity(dn):
     """Stable identifier used by label rendering and missing-label filtering."""
-    return dn.get("shopify_order_number") or dn.get("shopify_order_id") or dn["name"]
+    return (dn.get("shopify_order_number") or dn.get("shopify_order_id")
+            or dn.get("custom_opd_resolution_id") or dn["name"])
 
 
 @frappe.whitelist()
@@ -1553,7 +1766,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         "missing_labels": json.dumps(result["missing_labels"]),
         "delivery_notes": [
             {"delivery_note": d["name"],
-             "shopify_order_id": d.get("shopify_order_number") or d.get("shopify_order_id"),
+             "shopify_order_id": _label_identity(d),
              "awb_number": d.get("awb_number"),
              "label_found": 1}
             for d in dns

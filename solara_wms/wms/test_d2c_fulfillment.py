@@ -6,6 +6,18 @@ import frappe
 from solara_wms.wms import d2c_fulfillment as fulfillment
 
 
+class TestPrepareWaveSlots(TestCase):
+    def test_accepts_half_hour_and_plain_hours(self):
+        self.assertEqual(
+            fulfillment._prepare_wave_slots("8:30,12,15"),
+            [(8, 30), (12, 0), (15, 0)],
+        )
+
+    def test_rejects_non_quarter_hour(self):
+        with self.assertRaises(ValueError):
+            fulfillment._prepare_wave_slots("8:20,12")
+
+
 class TestD2CPrepareBatch(TestCase):
     @patch.object(fulfillment.frappe, "get_all")
     def test_only_successfully_labelled_rows_block_future_batches(self, get_all):

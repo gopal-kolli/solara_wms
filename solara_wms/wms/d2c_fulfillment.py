@@ -1688,7 +1688,7 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
     D2C Prepare Batch. Batch-aware: clicking again only emits orders that were
     not part of an earlier batch — re-clicks can never re-print already-packed
     orders. Creates no stock/accounting documents; reprints via reprint_batch.
-    run_type/wave_tag: "Wave" runs come from the scheduled 9/12/15 waves
+    run_type/wave_tag: "Wave" runs come from the configured scheduled waves
     (run_prepare_waves); the tag makes each wave fire at most once."""
     settings = _settings()
     on_date = getdate(on_date) if on_date else getdate(nowdate())
@@ -2017,28 +2017,54 @@ def _attach_outputs_to_batch(batch_name, result):
                                  "attached_to_name": batch_name})
 
 
+def _prepare_wave_slots(raw):
+    """Parse comma-separated site-time wave slots.
+
+    Plain hours remain compatible (``9,12,15``); ``HH:MM`` adds quarter-hour
+    starts such as ``8:30``. A slot remains active for the rest of its hour so
+    the */15 scheduler can retry an empty or briefly delayed first tick.
+    """
+    slots = set()
+    for token in str(raw or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            hour, minute = (int(part.strip()) for part in token.split(":", 1))
+        else:
+            hour, minute = int(token), 0
+        if hour not in range(24) or minute not in (0, 15, 30, 45):
+            raise ValueError("wave slots must be an hour or a 15-minute boundary")
+        slots.add((hour, minute))
+    if not slots:
+        raise ValueError("at least one wave slot is required")
+    return sorted(slots)
+
+
 def run_prepare_waves():
-    """Scheduler entry (*/15). Fires Prepare as a scheduled wave at the hours in
-    D2C Fulfillment Settings.prepare_wave_hours (site timezone, e.g. 9,12,15).
-    Idempotent per hour via wave_tag: a wave that already produced a batch never
-    re-fires; an EMPTY wave (no unbatched orders yet) creates no batch and simply
-    re-checks on the next */15 tick within the same hour, then lapses — orders
-    arriving later roll into the next wave or an ad-hoc run. Wrapped so a defect
-    can never wedge the shared scheduler (same contract as the other D2C jobs)."""
+    """Scheduler entry (*/15). Fires Prepare at configured site-time slots
+    (e.g. 8:30,12,15). Idempotent per slot via wave_tag: a wave that already
+    produced a batch never re-fires; an EMPTY wave creates no batch and re-checks
+    on later */15 ticks in that slot's hour, then lapses. Wrapped so a defect can
+    never wedge the shared scheduler (same contract as the other D2C jobs)."""
     try:
         settings = _settings()
         if not cint(settings.get("prepare_waves_enabled")):
             return
         raw = (settings.get("prepare_wave_hours") or "9,12,15")
         try:
-            hours = sorted({int(h.strip()) for h in raw.split(",") if h.strip()})
+            slots = _prepare_wave_slots(raw)
         except Exception:
-            _log("D2C Prepare Wave", "prepare_wave_hours is not a comma list of hours — using 9,12,15")
-            hours = [9, 12, 15]
+            _log("D2C Prepare Wave", "prepare_wave_hours is invalid — using 9,12,15")
+            slots = [(9, 0), (12, 0), (15, 0)]
         now = now_datetime()
-        if now.hour not in hours:
+        active = [(hour, minute) for hour, minute in slots
+                  if now.hour == hour and now.minute >= minute]
+        if not active:
             return
-        tag = "{0}-{1:02d}".format(now.strftime("%Y-%m-%d"), now.hour)
+        hour, minute = active[-1]
+        tag = "{0}-{1:02d}{2:02d}".format(
+            now.strftime("%Y-%m-%d"), hour, minute)
         if frappe.get_all("D2C Prepare Batch", filters={"wave_tag": tag}, limit_page_length=1):
             return  # this wave already produced its batch
         summary = prepare_todays_shipments(run_type="Wave", wave_tag=tag)

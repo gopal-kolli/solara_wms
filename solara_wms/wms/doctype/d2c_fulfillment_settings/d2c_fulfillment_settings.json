@@ -322,8 +322,8 @@
    "fieldname": "prepare_wave_hours",
    "fieldtype": "Data",
    "default": "9,12,15",
-   "label": "Wave Hours (24h, comma-separated)",
-   "description": "Site-timezone hours at which a wave fires, e.g. 9,12,15. A wave only creates a batch if there are new unbatched orders."
+   "label": "Wave Times (24h, comma-separated)",
+   "description": "Site-timezone hours or 15-minute slots at which waves begin, e.g. 8:30,12,15. Empty waves retry every 15 minutes for the rest of that slot's hour."
   },
   {
    "fieldname": "prepare_lookback_days",

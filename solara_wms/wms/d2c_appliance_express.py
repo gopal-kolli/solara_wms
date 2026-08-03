@@ -2,9 +2,10 @@
 # For license information, please see license.txt
 """Appliance Express classification and carton-EAN verification.
 
-Express is deliberately narrow: one physical appliance carton, or one of the
-explicitly pre-kitted AFO bundles whose accessories are already sealed inside
-that carton.  Loose accessories and multi-box orders stay on the normal lines.
+Express is deliberately explicit: bare approved appliance cartons, approved
+pre-kits, selected component-visible juicer bundles, and selected multi-box
+appliance bundles.  Every multi-box parcel still gets its own AWB, carton-EAN,
+condition and photo checks; unlisted loose accessories stay on normal lines.
 """
 import json
 
@@ -18,6 +19,14 @@ DEFAULT_PREKIT_BUNDLES = (
     "SOL-AF-501-SIL-BASKET-P6-SPY-101",
     "SOL-AF-124-SIL-BAS-P6-SPY-101",
     "SOL-AF-124-SIL-BASKET-P6-SPY-101",
+)
+DEFAULT_EXPRESS_COMBO_BUNDLES = (
+    "SOL-JUC-121-COMBO-CVR-101",
+    "SOL-JUC-121-GLSTUM-101",
+    "SOL-JUC-121-INS-TUM-101",
+)
+DEFAULT_EXPRESS_MULTIBOX_BUNDLES = (
+    "SOL-AFO-501-JUC-121",
 )
 STATION = "Appliance Express"
 
@@ -49,29 +58,60 @@ def express_config(settings=None):
                                   DEFAULT_APPLIANCE_SKUS),
         "prekit_bundles": _codes(settings.get("appliance_express_bundles"),
                                   DEFAULT_PREKIT_BUNDLES),
+        "combo_bundles": _codes(settings.get("appliance_express_combo_bundles"),
+                                 DEFAULT_EXPRESS_COMBO_BUNDLES),
+        "multibox_bundles": _codes(
+            settings.get("appliance_express_multibox_bundles"),
+            DEFAULT_EXPRESS_MULTIBOX_BUNDLES),
     }
 
 
-def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None):
+def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None,
+                   combo_bundles=None, multibox_bundles=None):
     """Pure eligibility decision shared by wave rendering and the scan API."""
     appliance_skus = set(appliance_skus or DEFAULT_APPLIANCE_SKUS)
     prekit_bundles = set(prekit_bundles or DEFAULT_PREKIT_BUNDLES)
-    if cint(box_count or 1) != 1:
-        return {"eligible": False, "reason": "Multi-box orders use normal packing."}
+    combo_bundles = set(combo_bundles or DEFAULT_EXPRESS_COMBO_BUNDLES)
+    multibox_bundles = set(multibox_bundles or DEFAULT_EXPRESS_MULTIBOX_BUNDLES)
+    box_count = cint(box_count or 1)
     lines = [row for row in (lines or []) if flt(_value(row, "qty")) > 0]
     primary = [row for row in lines
                if str(_value(row, "item_code") or "").upper() in appliance_skus]
-    if len(primary) != 1 or abs(flt(_value(primary[0], "qty")) - 1) > 0.001:
-        return {"eligible": False,
-                "reason": "Express requires exactly one approved appliance carton."}
     bundles = {str(_value(row, "bundle") or "").upper() for row in lines
                if _value(row, "bundle")}
     loose = [row for row in lines if not _value(row, "bundle")]
+
+    # Explicit appliance+appliance bundles (currently AFO + slow juicer) ship
+    # as separate factory cartons/AWBs but belong to the same appliance bay.
+    # This branch works both on the whole DN during wave classification (two
+    # primary cartons) and on one parcel during scan (one primary carton).
+    if box_count > 1:
+        bundle = next(iter(bundles)) if len(bundles) == 1 else None
+        valid_primary = (primary and len(primary) <= box_count
+                         and all(abs(flt(_value(row, "qty")) - 1) <= 0.001
+                                 for row in primary))
+        if bundle in multibox_bundles and not loose and valid_primary:
+            return {
+                "eligible": True,
+                "kind": "multi_box_appliance_combo",
+                "bundle": bundle,
+                "carton_item": str(_value(primary[0], "item_code") or "").upper(),
+                "reason": "Approved multi-box appliance combo",
+            }
+        return {"eligible": False,
+                "reason": "Multi-box order is not an approved Express appliance combo."}
+
+    if len(primary) != 1 or abs(flt(_value(primary[0], "qty")) - 1) > 0.001:
+        return {"eligible": False,
+                "reason": "Express requires exactly one approved appliance carton."}
     if len(lines) == 1 and len(loose) == 1:
         kind = "single_appliance"
         bundle = None
     elif len(bundles) == 1 and not loose and next(iter(bundles)) in prekit_bundles:
         kind = "pre_kitted_combo"
+        bundle = next(iter(bundles))
+    elif len(bundles) == 1 and not loose and next(iter(bundles)) in combo_bundles:
+        kind = "appliance_combo"
         bundle = next(iter(bundles))
     else:
         return {"eligible": False,
@@ -81,8 +121,11 @@ def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None)
         "kind": kind,
         "bundle": bundle,
         "carton_item": str(_value(primary[0], "item_code") or "").upper(),
-        "reason": ("Approved pre-kitted appliance combo" if bundle
-                   else "Approved single appliance carton"),
+        "reason": ("Approved pre-kitted appliance combo"
+                   if kind == "pre_kitted_combo" else
+                   "Approved appliance combo"
+                   if kind == "appliance_combo" else
+                   "Approved single appliance carton"),
     }
 
 
@@ -95,7 +138,9 @@ def classify_dn(dn, config=None):
         box_count=(len(_value(dn, "_awb_pairs") or []) or
                    cint(_value(dn, "custom_box_count")) or 1),
         appliance_skus=config["appliance_skus"],
-        prekit_bundles=config["prekit_bundles"])
+        prekit_bundles=config["prekit_bundles"],
+        combo_bundles=config["combo_bundles"],
+        multibox_bundles=config["multibox_bundles"])
 
 
 def _barcodes(item_code):
@@ -110,7 +155,9 @@ def appliance_express_state():
     cfg = express_config()
     return {"status": "ok", "enabled": cfg["enabled"], "qc_enabled": cfg["qc_enabled"],
             "station": STATION, "appliance_skus": sorted(cfg["appliance_skus"]),
-            "prekit_bundles": sorted(cfg["prekit_bundles"])}
+            "prekit_bundles": sorted(cfg["prekit_bundles"]),
+            "combo_bundles": sorted(cfg["combo_bundles"]),
+            "multibox_bundles": sorted(cfg["multibox_bundles"])}
 
 
 @frappe.whitelist()
@@ -154,7 +201,8 @@ def appliance_express_get(code):
         return out
     cfg = express_config()
     decision = classify_lines(out.get("pieces") or [], out.get("box_count") or 1,
-                              cfg["appliance_skus"], cfg["prekit_bundles"])
+                              cfg["appliance_skus"], cfg["prekit_bundles"],
+                              cfg["combo_bundles"], cfg["multibox_bundles"])
     if not cfg["enabled"]:
         decision = {"eligible": False, "reason": "Appliance Express is switched off."}
     if not decision.get("eligible"):
@@ -163,10 +211,15 @@ def appliance_express_get(code):
     barcodes = _barcodes(decision["carton_item"])
     if not barcodes:
         return {"status": "error", "message": "No EAN is configured for {0}. Use normal packing and tell the lead.".format(decision["carton_item"])}
+    combo_checks = []
+    if decision.get("kind") == "pre_kitted_combo":
+        combo_checks.append("Pre-kit / Combo Ready marking present")
+    elif decision.get("kind") == "appliance_combo":
+        combo_checks.append("All listed combo accessories present")
     out.update({"express": decision, "carton_barcodes": barcodes,
                 "station": STATION,
                 "condition_checks": ["Correct factory carton", "Carton and seal undamaged"] +
-                (["Pre-kit / Combo Ready marking present"] if decision.get("bundle") else [])})
+                combo_checks})
     if not cfg["qc_enabled"]:
         out.update({"qc_required": False, "qc_staged": False,
                     "qc_status": "Bypassed",

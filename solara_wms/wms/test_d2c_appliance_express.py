@@ -49,6 +49,38 @@ class TestApplianceExpressEligibility(TestCase):
         out = classify_lines([row("SOL-AF-501")], box_count=2)
         self.assertFalse(out["eligible"])
 
+    def test_afo_slow_juicer_bundle_is_express_as_two_parcels(self):
+        bundle = "SOL-AFO-501-JUC-121"
+        whole_order = classify_lines([
+            row("SOL-AF-501", bundle=bundle),
+            row("SOL-JUC-121", bundle=bundle),
+        ], box_count=2)
+        scanned_box = classify_lines([
+            row("SOL-JUC-121", bundle=bundle),
+        ], box_count=2)
+
+        self.assertTrue(whole_order["eligible"])
+        self.assertEqual(whole_order["kind"], "multi_box_appliance_combo")
+        self.assertTrue(scanned_box["eligible"])
+        self.assertEqual(scanned_box["carton_item"], "SOL-JUC-121")
+
+    def test_unapproved_multibox_bundle_stays_normal(self):
+        out = classify_lines([
+            row("SOL-AF-501", bundle="OTHER"),
+            row("SOL-JUC-121", bundle="OTHER"),
+        ], box_count=2)
+        self.assertFalse(out["eligible"])
+
+    def test_cold_press_juicer_accessory_combo_is_express_not_prekit(self):
+        bundle = "SOL-JUC-121-GLSTUM-101"
+        out = classify_lines([
+            row("SOL-JUC-121", bundle=bundle),
+            row("SOL-GLSTUM-101", bundle=bundle),
+        ])
+
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "appliance_combo")
+
     def test_two_appliances_stay_normal(self):
         out = classify_lines([row("SOL-AF-501", qty=2)])
         self.assertFalse(out["eligible"])

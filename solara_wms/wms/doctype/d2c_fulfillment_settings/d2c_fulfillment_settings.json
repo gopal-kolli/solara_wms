@@ -38,6 +38,8 @@
   "appliance_express_qc_enabled",
   "appliance_express_skus",
   "appliance_express_bundles",
+  "appliance_express_combo_bundles",
+  "appliance_express_multibox_bundles",
   "wave_email_recipients",
   "wave_slack_webhook",
   "ops_sheet_section",
@@ -364,6 +366,20 @@
    "fieldname": "appliance_express_bundles",
    "fieldtype": "Small Text",
    "label": "Appliance Express Pre-kitted Bundles"
+  },
+  {
+   "default": "SOL-JUC-121-COMBO-CVR-101\nSOL-JUC-121-GLSTUM-101\nSOL-JUC-121-INS-TUM-101",
+   "description": "One Product Bundle parent per line. Approved appliance-bay combos whose individual physical components remain visible on the Express pick and pack checklist.",
+   "fieldname": "appliance_express_combo_bundles",
+   "fieldtype": "Small Text",
+   "label": "Appliance Express Component-visible Bundles"
+  },
+  {
+   "default": "SOL-AFO-501-JUC-121",
+   "description": "One Product Bundle parent per line. Approved appliance+appliance bundles routed wholly to Express; every parcel AWB and factory-carton EAN is still scanned separately.",
+   "fieldname": "appliance_express_multibox_bundles",
+   "fieldtype": "Small Text",
+   "label": "Appliance Express Multi-box Bundles"
   },
   {
    "fieldname": "wave_email_recipients",

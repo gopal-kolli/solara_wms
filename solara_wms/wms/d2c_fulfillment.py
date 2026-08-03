@@ -2179,11 +2179,14 @@ def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0,
             express_pick_url = _build_pick_list_pdf(
                 express_dns, on_date, batch_no, stamp,
                 part_label="Appliance Express",
-                file_suffix="-appliance-express" if normal_dns else "")
+                file_suffix="-appliance-express" if normal_dns else "",
+                prekit_bundles=appliance_express.get("prekit_bundles"))
             parts.append({
                 "part": 0, "name": "Appliance Express", "kind": "express",
                 "orders": len(express_dns),
-                "pieces": sum(_dn_pieces(d) for d in express_dns),
+                "pieces": sum(_pick_list_piece_count(
+                    d, appliance_express.get("prekit_bundles"))
+                    for d in express_dns),
                 "order_range": [1, len(express_dns)],
                 "pick_list_url": express_pick_url,
                 "labels_pdf_url": express_labels_url,
@@ -2275,13 +2278,50 @@ def _enrich_physical_lines(dns):
         d["_service"] = service
 
 
-def _sku_summary(dns):
-    # Aggregates dn['_lines'] (physical pieces): bundles appear as the component
-    # SKUs the picker actually pulls from a bin; service rows excluded.
-    # _enrich_physical_lines must have run.
+def _pick_list_lines(dn, prekit_bundles=None):
+    """Return the lines the floor must physically pick for one order.
+
+    Normal Product Bundles stay exploded to components. For Appliance Express,
+    the explicitly approved pre-kitted bundle is already sealed inside one
+    appliance carton. Showing its Packed Item components as loose pick lines
+    would tell the floor to pick the same accessories twice. Collapse only that
+    approved bundle to its parent SKU for document rendering; the DN, Packed
+    Items, inventory accounting, labels and scan-time checks remain untouched.
+    """
+    lines = list(dn.get("_lines") or [])
+    approved = {str(code).strip().upper() for code in (prekit_bundles or [])
+                if str(code).strip()}
+    bundles = {str(line.get("bundle") or "").strip().upper() for line in lines
+               if line.get("bundle")}
+    if (len(bundles) != 1 or next(iter(bundles)) not in approved
+            or any(not line.get("bundle") for line in lines)):
+        return lines
+
+    bundle = next(iter(bundles))
+    parent = next((it for it in dn.get("items") or []
+                   if str(it.get("item_code") or "").strip().upper() == bundle), None)
+    qty = flt(parent.get("qty")) if parent else 1
+    return [{
+        "item_code": bundle,
+        "item_name": ((parent.get("item_name") if parent else None) or bundle),
+        "qty": qty or 1,
+        "bundle": None,
+        "pre_kitted": True,
+    }]
+
+
+def _pick_list_piece_count(dn, prekit_bundles=None):
+    return sum(flt(line["qty"])
+               for line in _pick_list_lines(dn, prekit_bundles))
+
+
+def _sku_summary(dns, prekit_bundles=None):
+    # Aggregates the floor-facing pick lines. Normal bundles appear as physical
+    # components; approved Express pre-kits remain one parent carton. Service
+    # rows are excluded. _enrich_physical_lines must have run.
     agg = {}
     for d in dns:
-        for it in d["_lines"]:
+        for it in _pick_list_lines(d, prekit_bundles):
             row = agg.setdefault(it["item_code"], {"item_name": it["item_name"], "qty": 0})
             row["qty"] += flt(it["qty"])
     return sorted(
@@ -2291,11 +2331,11 @@ def _sku_summary(dns):
 
 
 def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=None,
-                         file_suffix=""):
+                         file_suffix="", prekit_bundles=None):
     from frappe.utils.pdf import get_pdf
 
     _enrich_physical_lines(dns)
-    sku_rows = _sku_summary(dns)
+    sku_rows = _sku_summary(dns, prekit_bundles)
     total_pieces = sum(r["qty"] for r in sku_rows)
 
     def esc(s):
@@ -2327,10 +2367,13 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
 
     def content_cell(d):
         parts = []
-        for ln in d["_lines"]:
+        for ln in _pick_list_lines(d, prekit_bundles):
             of = (" <span style='color:#999'>(of {0})</span>".format(esc(ln["bundle"]))
                   if ln["bundle"] else "")
-            parts.append("{0}{1:g}× {2}{3}".format(chk, ln["qty"], esc(ln["item_code"]), of))
+            prekit = (" <b style='color:#166534'>(PRE-KITTED — do not pick accessories separately)</b>"
+                      if ln.get("pre_kitted") else "")
+            parts.append("{0}{1:g}× {2}{3}{4}".format(
+                chk, ln["qty"], esc(ln["item_code"]), of, prekit))
         for it in d["_service"]:
             parts.append(
                 "<span style='color:#999;font-style:italic'>{0}×{1:g} — service, not packed</span>"
@@ -2348,7 +2391,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
              "<td></td><td></td></tr>").format(
                 # Shaded row = multi-piece order → 100% second-person QC count (SOP-PACK-QC)
                 shade=" style='background:#e8e8e8'"
-                      if sum(flt(l["qty"]) for l in d["_lines"]) > 1 else "",
+                      if _pick_list_piece_count(d, prekit_bundles) > 1 else "",
                 n=start_no + i,
                 order=esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]),
                 awb=awb_cell(d),
@@ -2356,7 +2399,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
                 # for an order whose label sheet carries two.
                 boxes=len(_awb_courier_pairs(d)) or cint(d.get("custom_box_count")) or 1,
                 contents=content_cell(d),
-                pieces=sum(flt(l["qty"]) for l in d["_lines"]))
+                pieces=_pick_list_piece_count(d, prekit_bundles))
             for i, d in enumerate(seq)
         )
 
@@ -2367,7 +2410,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
          &nbsp; SKUs: <b>{skus}</b> &nbsp;
          <span style="color:#888">generated {gen}</span></p>
 
-      <h3 style="margin:12px 0 4px">A. PICK (by SKU — bundles exploded to components)</h3>
+      <h3 style="margin:12px 0 4px">{pick_heading}</h3>
       <table border="1" cellspacing="0" cellpadding="4" width="100%"
              style="border-collapse:collapse">
         <thead><tr style="background:#f0f0f0">
@@ -2443,6 +2486,10 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
                 + esc(part_label) + "</span>") if part_label else "",
         units=total_pieces, skus=len(sku_rows),
         gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
+        pick_heading=(
+            "A. PICK (by carton SKU — approved pre-kits stay as one carton)"
+            if prekit_bundles else
+            "A. PICK (by SKU — bundles exploded to components)"),
         pick_rows=pick_rows, section_b=section_b)
 
     pdf_bytes = get_pdf(html)

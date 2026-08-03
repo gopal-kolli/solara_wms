@@ -90,11 +90,47 @@ class TestD2CPrepareBatch(TestCase):
         self.assertEqual(express_call.kwargs["part_label"], "Appliance Express")
         self.assertEqual(express_call.kwargs["file_suffix"],
                          "-appliance-express")
+        self.assertEqual(express_call.kwargs["prekit_bundles"],
+                         {"SOL-AF-501-SIL-BAS-P6-SPY-101"})
         self.assertEqual([row["name"] for row in normal_call.args[0]], ["DN-CI"])
         self.assertEqual(build_labels.call_args_list[1].kwargs["file_suffix"],
                          "-appliance-express")
         self.assertEqual([row["name"] for row in build_labels.call_args_list[2].args[0]],
                          ["DN-CI"])
+
+    def test_express_prekit_renders_as_one_parent_carton(self):
+        bundle = "SOL-AF-501-SIL-BAS-P6-SPY-101"
+        dn = {
+            "items": [{"item_code": bundle,
+                       "item_name": "AFO + basket + sprayer combo", "qty": 1}],
+            "_lines": [
+                {"item_code": "SOL-AF-501", "item_name": "AFO", "qty": 1,
+                 "bundle": bundle},
+                {"item_code": "SOL-AF-SIL-BASKET-P6", "item_name": "Basket",
+                 "qty": 1, "bundle": bundle},
+                {"item_code": "SOL-SPY-101", "item_name": "Sprayer", "qty": 1,
+                 "bundle": bundle},
+            ],
+        }
+
+        lines = fulfillment._pick_list_lines(dn, {bundle})
+
+        self.assertEqual(lines, [{
+            "item_code": bundle,
+            "item_name": "AFO + basket + sprayer combo",
+            "qty": 1.0,
+            "bundle": None,
+            "pre_kitted": True,
+        }])
+        self.assertEqual(fulfillment._pick_list_piece_count(dn, {bundle}), 1.0)
+
+    def test_normal_pick_list_still_explodes_bundle_components(self):
+        bundle = "SOL-CI-C11"
+        lines = [{"item_code": "SOL-CI-FP-104", "item_name": "Fry pan",
+                  "qty": 1, "bundle": bundle}]
+        dn = {"items": [{"item_code": bundle, "qty": 1}], "_lines": lines}
+
+        self.assertEqual(fulfillment._pick_list_lines(dn), lines)
 
 
 class _Row:

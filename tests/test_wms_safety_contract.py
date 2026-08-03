@@ -86,6 +86,8 @@ def test_shadow_inventory_service_has_atomic_lock_and_no_erp_posting():
     assert "ORDER BY name" in source
     assert "available_qty >= %s" in source
     assert 'require_wms_mode("Shadow", "Draft Handoff")' in source
+    assert "class IdempotencyConflict(frappe.ValidationError)" in source
+    assert "http_status_code = 409" in source
 
 
 def test_item_location_is_warehouse_scoped():

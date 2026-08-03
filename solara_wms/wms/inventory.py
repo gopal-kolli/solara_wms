@@ -25,6 +25,12 @@ BALANCE_DOCTYPE = "WMS Bin Balance"
 MOVEMENT_DOCTYPE = "WMS Movement"
 
 
+class IdempotencyConflict(frappe.ValidationError):
+    """The same command identity was reused with a different request body."""
+
+    http_status_code = 409
+
+
 def _require_shadow_write(warehouse):
     require_wms_mode("Shadow", "Draft Handoff")
     frappe.only_for("System Manager")
@@ -43,8 +49,11 @@ def _idempotency_key(value):
 
 
 def _conflict(message):
-    frappe.local.response["http_status_code"] = 409
-    frappe.throw(message, title=_("Idempotency Conflict"))
+    frappe.throw(
+        message,
+        exc=IdempotencyConflict,
+        title=_("Idempotency Conflict"),
+    )
 
 
 def _validate_bin(warehouse, bin_name):

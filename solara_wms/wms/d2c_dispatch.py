@@ -5,7 +5,8 @@ duplicate can never be shipped (Amazon-DF-style dispatch confirmation).
 
 The floor scans either barcode on the label:
   - the courier AWB (SF…/2904…/WB…), or
-  - the Order-ID barcode (SOL12345-P1 → order + parcel index).
+  - the Order-ID barcode (SOL12345-P1 → order + parcel index), or
+  - a submitted Delivery Note number (SHPDN27-12345; single-parcel only).
 
 Each scan is recorded once (D2C Dispatch Scan, AWB unique = the DB-level
 duplicate block). When every parcel of an order is scanned, the DN is stamped
@@ -45,7 +46,8 @@ def _find_dn_by_awb(awb):
 
 def _resolve(code):
     """code -> (dn_name, awb, box_index, box_count). Accepts an AWB or a
-    SOL#####-P<n> order-id barcode or a bare SOL##### (single-parcel only)."""
+    SOL#####-P<n> order-id barcode, a bare SOL##### or a submitted SHPDN
+    Delivery Note number (the latter two are single-parcel only)."""
     code = code.strip()
     up = code.upper()
 
@@ -72,6 +74,23 @@ def _resolve(code):
         pairs = _awb_courier_pairs(dn)
         if len(pairs) > 1:
             # ambiguous — force an AWB/parcel scan so we don't dispatch a box short
+            return dn.name, None, None, len(pairs)
+        return dn.name, (pairs[0][0] if pairs else None), 1, 1
+
+    if re.match(r"^SHPDN\d+-\d+(?:-\d+)?$", up):
+        rows = frappe.get_all(
+            "Delivery Note",
+            filters={"name": up, "docstatus": 1},
+            fields=["name"],
+            limit_page_length=1,
+        )
+        if not rows:
+            return None, None, None, None
+        dn = frappe.get_doc("Delivery Note", rows[0].name)
+        pairs = _awb_courier_pairs(dn)
+        if len(pairs) > 1:
+            # A DN barcode does not identify a physical parcel. Preserve the
+            # per-box dispatch guard by requiring each courier AWB instead.
             return dn.name, None, None, len(pairs)
         return dn.name, (pairs[0][0] if pairs else None), 1, 1
 

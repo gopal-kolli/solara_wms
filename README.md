@@ -11,6 +11,8 @@ Warehouse Management System (WMS) for ERPNext/Frappe.
 
 - **Warehouse Bin** - Named bin locations (A-01-01) with zone, aisle, rack, level tracking
 - **WMS Item Location** - Warehouse-scoped Home/Reserve/Overflow SKU placement and replenishment policy
+- **WMS Bin Balance** - Isolated physical quantity by ERP warehouse, SKU and bin
+- **WMS Movement** - Immutable, idempotent evidence for opening balances and internal moves
 - **WMS Task** - Directed warehouse tasks (Putaway, Pick, Transfer, Count, Adjust)
 - **WMS ASN** - Advanced Shipping Notice for inbound receiving with variance tracking
 - **WMS Wave Pick** - Batch picking across multiple Sales Orders

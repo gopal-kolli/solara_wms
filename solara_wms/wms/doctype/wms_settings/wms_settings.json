@@ -6,7 +6,7 @@
   "field_order": ["safety_section", "operating_mode", "pilot_warehouse", "scope_note"],
   "fields": [
     {"fieldname": "safety_section", "fieldtype": "Section Break", "label": "Execution Safety"},
-    {"fieldname": "operating_mode", "fieldtype": "Select", "label": "Operating Mode", "options": "Disabled\nShadow\nDraft Handoff", "default": "Disabled", "reqd": 1, "description": "Disabled: no WMS completion. Shadow: observe/compare only. Draft Handoff: approved TEST workflows may prepare ERP drafts but never submit them."},
+    {"fieldname": "operating_mode", "fieldtype": "Select", "label": "Operating Mode", "options": "Disabled\nShadow\nDraft Handoff", "default": "Disabled", "reqd": 1, "description": "Disabled: no WMS mutations. Shadow: maintain an isolated physical-bin ledger without ERP stock documents. Draft Handoff: approved TEST workflows may also prepare ERP drafts but never submit them."},
     {"fieldname": "pilot_warehouse", "fieldtype": "Link", "label": "Pilot Warehouse", "options": "Warehouse", "description": "HYD/Shamshabad for the first controlled pilot. This is not an implicit fallback once multiple warehouses are active."},
     {"fieldname": "scope_note", "fieldtype": "Small Text", "label": "Scope Note", "read_only": 1, "default": "Installing this app never activates warehouse execution. TEST sign-off and an explicit mode change are required."}
   ],

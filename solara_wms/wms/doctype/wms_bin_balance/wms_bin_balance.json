@@ -1,0 +1,40 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "warehouse", "bin", "item_code", "quantity_section", "physical_qty",
+    "allocated_qty", "hold_qty", "available_qty", "audit_section",
+    "last_movement", "last_updated_by"
+  ],
+  "fields": [
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},
+    {"fieldname": "bin", "fieldtype": "Link", "label": "Physical Bin", "options": "Warehouse Bin", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},
+    {"fieldname": "quantity_section", "fieldtype": "Section Break", "label": "Physical State"},
+    {"fieldname": "physical_qty", "fieldtype": "Float", "label": "Physical Quantity", "default": "0", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "allocated_qty", "fieldtype": "Float", "label": "Allocated Quantity", "default": "0", "read_only": 1},
+    {"fieldname": "hold_qty", "fieldtype": "Float", "label": "Hold Quantity", "default": "0", "read_only": 1},
+    {"fieldname": "available_qty", "fieldtype": "Float", "label": "Available Quantity", "default": "0", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "audit_section", "fieldtype": "Section Break", "label": "Last Movement"},
+    {"fieldname": "last_movement", "fieldtype": "Link", "label": "Last Movement", "options": "WMS Movement", "read_only": 1},
+    {"fieldname": "last_updated_by", "fieldtype": "Link", "label": "Last Updated By", "options": "User", "read_only": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Bin Balance",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1, "report": 1}
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "item_code",
+  "track_changes": 0
+}

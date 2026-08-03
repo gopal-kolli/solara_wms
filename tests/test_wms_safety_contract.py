@@ -44,12 +44,48 @@ def test_floor_controllers_never_submit_erp_documents():
 
 def test_new_doctype_json_is_valid():
     paths = (
+        LEGACY / "wms_bin_balance/wms_bin_balance.json",
+        LEGACY / "wms_movement/wms_movement.json",
         LEGACY / "wms_item_location/wms_item_location.json",
         LEGACY / "wms_settings/wms_settings.json",
         LEGACY / "warehouse_bin/warehouse_bin.json",
     )
     for path in paths:
         assert json.loads(path.read_text())["doctype"] == "DocType"
+
+
+def test_shadow_ledger_doctypes_are_read_only_and_idempotent():
+    balance = json.loads(
+        (LEGACY / "wms_bin_balance/wms_bin_balance.json").read_text()
+    )
+    movement = json.loads((LEGACY / "wms_movement/wms_movement.json").read_text())
+    balance_fields = {field["fieldname"]: field for field in balance["fields"]}
+    movement_fields = {field["fieldname"]: field for field in movement["fields"]}
+
+    assert balance["track_changes"] == 0
+    assert movement["track_changes"] == 0
+    for fieldname in ("warehouse", "bin", "item_code"):
+        assert balance_fields[fieldname]["reqd"] == 1
+        assert balance_fields[fieldname]["read_only"] == 1
+    assert movement_fields["idempotency_key"]["unique"] == 1
+    assert movement_fields["request_hash"]["reqd"] == 1
+
+
+def test_shadow_inventory_service_has_atomic_lock_and_no_erp_posting():
+    path = ROOT / "solara_wms" / "wms" / "inventory.py"
+    source = path.read_text()
+    tree = ast.parse(source)
+    forbidden = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in {"submit", "commit"}:
+                forbidden.append(f"{node.func.attr}:{node.lineno}")
+
+    assert forbidden == []
+    assert "FOR UPDATE" in source
+    assert "ORDER BY name" in source
+    assert "available_qty >= %s" in source
+    assert 'require_wms_mode("Shadow", "Draft Handoff")' in source
 
 
 def test_item_location_is_warehouse_scoped():

@@ -4,7 +4,7 @@ app_publisher = "Win The Buy Box Private Limited"
 app_description = "Warehouse Management System for ERPNext - bin locations and directed warehouse tasks"
 app_email = "gopal@solara.in"
 app_license = "MIT"
-app_version = "1.1.0"
+app_version = "1.2.0"
 
 # Required apps
 required_apps = ["frappe", "erpnext"]

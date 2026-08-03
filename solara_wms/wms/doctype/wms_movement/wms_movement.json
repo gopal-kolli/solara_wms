@@ -1,0 +1,52 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "movement_type", "status", "warehouse", "item_code", "source_bin", "target_bin",
+    "qty", "idempotency_section", "idempotency_key", "request_hash", "device_id",
+    "quantity_evidence", "source_before", "source_after", "target_before", "target_after",
+    "reference_section", "reference_doctype", "reference_name", "posted_at", "posted_by", "notes"
+  ],
+  "fields": [
+    {"fieldname": "movement_type", "fieldtype": "Select", "label": "Movement Type", "options": "Opening Balance\nInternal Move\nCount Adjustment\nReversal", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "read_only": 1},
+    {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Posted\nReversed", "default": "Posted", "reqd": 1, "in_list_view": 1, "read_only": 1},
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},
+    {"fieldname": "source_bin", "fieldtype": "Link", "label": "Source Bin", "options": "Warehouse Bin", "in_standard_filter": 1, "read_only": 1},
+    {"fieldname": "target_bin", "fieldtype": "Link", "label": "Target Bin", "options": "Warehouse Bin", "in_standard_filter": 1, "read_only": 1},
+    {"fieldname": "qty", "fieldtype": "Float", "label": "Quantity", "reqd": 1, "read_only": 1},
+    {"fieldname": "idempotency_section", "fieldtype": "Section Break", "label": "Idempotency"},
+    {"fieldname": "idempotency_key", "fieldtype": "Data", "label": "Idempotency Key", "reqd": 1, "unique": 1, "search_index": 1, "read_only": 1},
+    {"fieldname": "request_hash", "fieldtype": "Data", "label": "Request Hash", "reqd": 1, "read_only": 1},
+    {"fieldname": "device_id", "fieldtype": "Data", "label": "Device ID", "read_only": 1},
+    {"fieldname": "quantity_evidence", "fieldtype": "Section Break", "label": "Quantity Evidence"},
+    {"fieldname": "source_before", "fieldtype": "Float", "label": "Source Before", "read_only": 1},
+    {"fieldname": "source_after", "fieldtype": "Float", "label": "Source After", "read_only": 1},
+    {"fieldname": "target_before", "fieldtype": "Float", "label": "Target Before", "read_only": 1},
+    {"fieldname": "target_after", "fieldtype": "Float", "label": "Target After", "read_only": 1},
+    {"fieldname": "reference_section", "fieldtype": "Section Break", "label": "Reference"},
+    {"fieldname": "reference_doctype", "fieldtype": "Link", "label": "Reference DocType", "options": "DocType", "read_only": 1},
+    {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "label": "Reference Name", "options": "reference_doctype", "read_only": 1},
+    {"fieldname": "posted_at", "fieldtype": "Datetime", "label": "Posted At", "read_only": 1},
+    {"fieldname": "posted_by", "fieldtype": "Link", "label": "Posted By", "options": "User", "read_only": 1},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes", "read_only": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Movement",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1, "report": 1}
+  ],
+  "sort_field": "posted_at",
+  "sort_order": "DESC",
+  "title_field": "movement_type",
+  "track_changes": 0
+}

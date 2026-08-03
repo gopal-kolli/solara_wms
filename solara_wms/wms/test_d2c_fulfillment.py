@@ -58,7 +58,7 @@ class TestD2CPrepareBatch(TestCase):
     @patch.object(fulfillment, "_enrich_physical_lines")
     @patch.object(fulfillment, "_build_pick_list_pdf")
     @patch.object(fulfillment, "_build_combined_labels_pdf")
-    def test_appliance_express_is_removed_before_six_line_balance(
+    def test_appliance_express_gets_independent_print_package_before_line_balance(
         self, build_labels, build_pick, _enrich
     ):
         express = {"name": "DN-AF", "shopify_order_number": "SOL-AF",
@@ -81,8 +81,20 @@ class TestD2CPrepareBatch(TestCase):
         self.assertEqual(result["parts"][0]["name"], "Appliance Express")
         self.assertEqual(result["parts"][0]["orders"], 1)
         self.assertEqual(result["parts"][1]["name"], "Line 1")
-        ordered = build_pick.call_args.args[0]
-        self.assertEqual([row["name"] for row in ordered], ["DN-AF", "DN-CI"])
+        self.assertEqual(result["appliance_pick_list_url"], "/private/files/pick.pdf")
+        self.assertEqual(result["appliance_labels_pdf_url"],
+                         "/private/files/labels.pdf")
+        self.assertEqual(len(build_pick.call_args_list), 2)
+        express_call, normal_call = build_pick.call_args_list
+        self.assertEqual([row["name"] for row in express_call.args[0]], ["DN-AF"])
+        self.assertEqual(express_call.kwargs["part_label"], "Appliance Express")
+        self.assertEqual(express_call.kwargs["file_suffix"],
+                         "-appliance-express")
+        self.assertEqual([row["name"] for row in normal_call.args[0]], ["DN-CI"])
+        self.assertEqual(build_labels.call_args_list[1].kwargs["file_suffix"],
+                         "-appliance-express")
+        self.assertEqual([row["name"] for row in build_labels.call_args_list[2].args[0]],
+                         ["DN-CI"])
 
 
 class _Row:

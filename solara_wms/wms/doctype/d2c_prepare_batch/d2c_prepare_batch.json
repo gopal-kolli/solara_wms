@@ -16,6 +16,8 @@
   "files_section",
   "pick_list_url",
   "labels_pdf_url",
+  "appliance_pick_list_url",
+  "appliance_labels_pdf_url",
   "missing_labels",
   "output_parts",
   "dns_section",
@@ -96,6 +98,20 @@
    "fieldname": "labels_pdf_url",
    "fieldtype": "Data",
    "label": "Labels PDF URL",
+   "read_only": 1,
+   "options": "URL"
+  },
+  {
+   "fieldname": "appliance_pick_list_url",
+   "fieldtype": "Data",
+   "label": "Appliance Express Pick List URL",
+   "read_only": 1,
+   "options": "URL"
+  },
+  {
+   "fieldname": "appliance_labels_pdf_url",
+   "fieldtype": "Data",
+   "label": "Appliance Express Labels PDF URL",
    "read_only": 1,
    "options": "URL"
   },

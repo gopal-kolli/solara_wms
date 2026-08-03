@@ -1706,6 +1706,8 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         "missing_labels": [],
         "pick_list_url": None,
         "labels_pdf_url": None,
+        "appliance_pick_list_url": None,
+        "appliance_labels_pdf_url": None,
     }
     if not candidates:
         summary["message"] = (
@@ -1764,6 +1766,8 @@ def prepare_todays_shipments(on_date=None, run_type="Ad-hoc", wave_tag=None):
         "units": summary["units"],
         "pick_list_url": result["pick_list_url"],
         "labels_pdf_url": result["labels_pdf_url"],
+        "appliance_pick_list_url": result.get("appliance_pick_list_url"),
+        "appliance_labels_pdf_url": result.get("appliance_labels_pdf_url"),
         "output_parts": json.dumps(result["parts"]) if result.get("parts") else None,
         "missing_labels": json.dumps(result["missing_labels"]),
         "delivery_notes": [
@@ -1834,9 +1838,15 @@ def _email_batch(batch_name, summary, settings):
     try:
         attachments = []
         total = 0
-        for url in (summary.get("pick_list_url"), summary.get("labels_pdf_url")):
+        seen_urls = set()
+        for url in (summary.get("pick_list_url"), summary.get("labels_pdf_url"),
+                    summary.get("appliance_pick_list_url"),
+                    summary.get("appliance_labels_pdf_url")):
             if not url:
                 continue
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
             content = _file_bytes(url)
             if content:
                 total += len(content)
@@ -1848,6 +1858,8 @@ def _email_batch(batch_name, summary, settings):
         courier_note = ("<p><b>By courier:</b> " + " &nbsp;·&nbsp; ".join(
             "{0} <b>{1}</b>".format(c["courier"], c["parcels"]) for c in by_c) + "</p>") if by_c else ""
         parts = summary.get("parts") or []
+        express_part = next((p for p in parts if p.get("kind") == "express"), None)
+        normal_parts = [p for p in parts if p.get("kind") == "packing_line"]
         parts_note = ""
         if parts:
             rows = "".join(
@@ -1856,20 +1868,35 @@ def _email_batch(batch_name, summary, settings):
                         a=pt["order_range"][0], b=pt["order_range"][1],
                         o=pt["orders"], pc=pt.get("pieces") or 0)
                 for pt in parts)
-            parts_note = ("<p><b>Line sections</b> — ONE file; a black divider page "
-                          "marks where each line's section starts (same split in the "
-                          "label stack):</p><ul>{0}</ul>".format(rows))
+            parts_note = ("<p><b>Print packages:</b> Appliance Express is a separate "
+                          "pick-list/labels pair. Lines 1&ndash;6 remain together in the "
+                          "Normal Packing pair, with black divider pages between lines.</p>"
+                          "<ul>{0}</ul>".format(rows))
+        package_links = []
+        if normal_parts or not express_part:
+            package_links.append(
+                "<li><b>Normal Packing</b>: <a href='{0}/reconciliation/label-status/"
+                "batch/{1}/picklist.pdf'>pick list</a> &middot; <a href='{0}/"
+                "reconciliation/label-status/batch/{1}/labels.pdf'>labels</a></li>"
+                .format(LABEL_DASHBOARD_BASE, batch_name))
+        if express_part:
+            package_links.append(
+                "<li><b>Appliance Express</b>: <a href='{0}/reconciliation/label-status/"
+                "batch/{1}/picklist-express.pdf'>pick list</a> &middot; <a href='{0}/"
+                "reconciliation/label-status/batch/{1}/labels-express.pdf'>labels</a></li>"
+                .format(LABEL_DASHBOARD_BASE, batch_name))
+        package_links = "<ul>{0}</ul>".format("".join(package_links))
         body = (
             "<p><b>D2C dispatch batch {batch}</b> — {orders} orders / {units:g} units "
             "({run_type}, {date}, stamp {stamp})</p>"
             "{courier_note}"
-            "<ul><li>Pick list: <a href='{dash}/reconciliation/label-status/batch/{batch}/picklist.pdf'>{pl_name}</a></li>"
-            "<li>Labels PDF: <a href='{dash}/reconciliation/label-status/batch/{batch}/labels.pdf'>{lb_name}</a></li></ul>"
+            "{package_links}"
             "{parts_note}"
             "{attach_note}{missing_note}"
             "<p>Ship these from the Atlas batch and SKIP them on the manual sheet.</p>"
         ).format(
             parts_note=parts_note,
+            package_links=package_links,
             courier_note=courier_note,
             batch=batch_name, orders=summary.get("orders"), units=summary.get("units") or 0,
             run_type=summary.get("run_type") or "", date=summary.get("date"),
@@ -1910,18 +1937,32 @@ def _slack_batch(batch_name, summary, settings):
     import requests
     dash = LABEL_DASHBOARD_BASE
     missing = summary.get("missing_labels") or []
+    parts = summary.get("parts") or []
+    express_part = next((p for p in parts if p.get("kind") == "express"), None)
+    normal_parts = [p for p in parts if p.get("kind") == "packing_line"]
     lines = [
         ":package: *D2C {0} wave — labels ready*".format(summary.get("run_type") or "Ad-hoc"),
         "Batch *{0}* · *{1} orders* / {2:g} units · stamp {3}".format(
             batch_name, summary.get("orders"), summary.get("units") or 0,
             summary.get("batch_stamp")),
-        "• <{0}/reconciliation/label-status/batch/{1}/labels.pdf|:label: Labels PDF>".format(dash, batch_name),
-        "• <{0}/reconciliation/label-status/batch/{1}/picklist.pdf|:clipboard: Pick list>".format(dash, batch_name),
-        "Ship from the Atlas batch and *skip them on the manual sheet*.",
     ]
-    parts = summary.get("parts") or []
+    if normal_parts or not express_part:
+        lines.extend([
+            "• *Normal Packing* · <{0}/reconciliation/label-status/batch/{1}/"
+            "picklist.pdf|:clipboard: Pick list> · <{0}/reconciliation/label-status/"
+            "batch/{1}/labels.pdf|:label: Labels>".format(dash, batch_name),
+        ])
+    if express_part:
+        lines.extend([
+            "• *Appliance Express* · <{0}/reconciliation/label-status/batch/{1}/"
+            "picklist-express.pdf|:clipboard: Pick list> · <{0}/reconciliation/"
+            "label-status/batch/{1}/labels-express.pdf|:label: Labels>"
+            .format(dash, batch_name),
+        ])
+    lines.append("Ship from the Atlas batch and *skip them on the manual sheet*.")
     if parts:
-        lines.append("*Line sections* (one file — divider pages mark each line): "
+        lines.append("*Separate print packages:* Appliance Express is independent; "
+                     "Normal Packing keeps divider pages between Lines 1–6. "
                      + "  ·  ".join(
                          "{station} #{a}–{b} ({pc:g} pcs)".format(
                              station=pt.get("name") or "Line " + str(pt["part"]),
@@ -1957,7 +1998,9 @@ def _attach_outputs_to_batch(batch_name, result):
     """Link the generated pick-list/labels File docs to the batch record so they
     show in its attachments sidebar and can't be swept by the same-name overwrite
     in _save_output_file (which skips attached files)."""
-    urls = [result.get("pick_list_url"), result.get("labels_pdf_url")]
+    urls = [result.get("pick_list_url"), result.get("labels_pdf_url"),
+            result.get("appliance_pick_list_url"),
+            result.get("appliance_labels_pdf_url")]
     for p in result.get("parts") or []:
         urls += [p.get("pick_list_url"), p.get("labels_pdf_url")]
     for url in urls:
@@ -2038,6 +2081,10 @@ def reprint_batch(batch_name):
         updates["pick_list_url"] = result["pick_list_url"]
     if result.get("labels_pdf_url"):
         updates["labels_pdf_url"] = result["labels_pdf_url"]
+    # These two must also be cleared when a supervisor reprints after Express
+    # has been switched off; otherwise the batch would retain stale package links.
+    updates["appliance_pick_list_url"] = result.get("appliance_pick_list_url")
+    updates["appliance_labels_pdf_url"] = result.get("appliance_labels_pdf_url")
     if result.get("parts"):
         updates["output_parts"] = json.dumps(result["parts"])
     if updates:
@@ -2101,34 +2148,51 @@ def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0,
     labels_url, missing = _build_combined_labels_pdf(dns, on_date, batch_no, stamp)
     missing_set = set(missing)
     printable = [d for d in dns if _label_identity(d) not in missing_set]
-    # Packing-line sections (Gopal, 2026-07-30): ONE pick list + ONE label stack
-    # per batch regardless of volume, with a divider page where each line's
-    # section begins — not N files (clumsy at 2,000 orders/day). Chunks are
-    # contiguous + piece-balanced; order #s stay global.
-    parts = []
-    if cint(pack_lines) > 1 and printable:
+    # Appliance Express is a genuinely separate physical print package. Normal
+    # Lines 1..N retain one pick list + one label stack with divider pages. This
+    # prevents an Express label from being handed to a normal table while still
+    # avoiding six separate printer jobs for the normal floor.
+    parts, normal_parts = [], []
+    express_dns, normal_dns = [], printable
+    express_pick_url = express_labels_url = None
+    express_on = bool(appliance_express and appliance_express.get("enabled"))
+    if printable and (cint(pack_lines) > 1 or express_on):
         _enrich_physical_lines(printable)   # piece counts for balancing (idempotent)
-        express_dns, normal_dns = [], printable
-        if appliance_express and appliance_express.get("enabled"):
+        if express_on:
             from solara_wms.wms.d2c_appliance_express import classify_dn
             express_dns, normal_dns = [], []
             for d in printable:
                 d["_awb_pairs"] = _awb_courier_pairs(d)
                 (express_dns if classify_dn(d, appliance_express).get("eligible")
                  else normal_dns).append(d)
-            printable = express_dns + normal_dns
-        pos = 1
+
         if express_dns:
+            # When the whole wave is Express, reuse the admission label file as
+            # the Express file and legacy batch link. Mixed waves get a distinct
+            # filename so the two printer packages can never be confused.
+            if normal_dns:
+                express_labels_url, _ = _build_combined_labels_pdf(
+                    express_dns, on_date, batch_no, stamp,
+                    file_suffix="-appliance-express")
+            else:
+                express_labels_url = labels_url
+            express_pick_url = _build_pick_list_pdf(
+                express_dns, on_date, batch_no, stamp,
+                part_label="Appliance Express",
+                file_suffix="-appliance-express" if normal_dns else "")
             parts.append({
                 "part": 0, "name": "Appliance Express", "kind": "express",
                 "orders": len(express_dns),
                 "pieces": sum(_dn_pieces(d) for d in express_dns),
-                "order_range": [pos, pos + len(express_dns) - 1],
+                "order_range": [1, len(express_dns)],
+                "pick_list_url": express_pick_url,
+                "labels_pdf_url": express_labels_url,
                 "_names": [d["name"] for d in express_dns],
             })
-            pos += len(express_dns)
+
+        pos = 1
         for i, chunk in enumerate(_partition_for_pack_lines(normal_dns, pack_lines), 1):
-            parts.append({
+            normal_parts.append({
                 "part": i, "name": "Line " + str(i), "kind": "packing_line",
                 "orders": len(chunk),
                 "pieces": sum(_dn_pieces(d) for d in chunk),
@@ -2136,22 +2200,33 @@ def _render_batch_files(dns, on_date, batch_no, stamp, pack_lines=0,
                 "_names": [d["name"] for d in chunk],
             })
             pos += len(chunk)
-        # Re-merge the labels WITH divider pages (second pass over the attached
-        # files — seconds even at 1,300 orders; the first pass already decided
-        # admission, so this pass sees only printable DNs).
-        labels_url, _ = _build_combined_labels_pdf(printable, on_date, batch_no,
-                                                   stamp, parts=parts)
-    pick_url = (_build_pick_list_pdf(printable, on_date, batch_no, stamp,
-                                     parts=parts or None)
-                if printable else None)
+        parts.extend(normal_parts)
+
+        if normal_dns:
+            # Re-merge only the normal floor labels, with Line 1..N divider
+            # pages. Express labels are in their own PDF above.
+            labels_url, _ = _build_combined_labels_pdf(
+                normal_dns, on_date, batch_no, stamp,
+                parts=normal_parts or None)
+            pick_url = _build_pick_list_pdf(
+                normal_dns, on_date, batch_no, stamp,
+                parts=normal_parts or None)
+        else:
+            # Preserve the established batch links for an Express-only wave.
+            labels_url, pick_url = express_labels_url, express_pick_url
+    else:
+        pick_url = (_build_pick_list_pdf(printable, on_date, batch_no, stamp)
+                    if printable else None)
     # output_parts is persisted for attribution (CS ticket → order # → line);
     # strip the internal DN name list from what gets stored/notified.
     public_parts = [{k: v for k, v in p.items() if k != "_names"} for p in parts]
     return {
         "pick_list_url": pick_url,
         "labels_pdf_url": labels_url,
+        "appliance_pick_list_url": express_pick_url,
+        "appliance_labels_pdf_url": express_labels_url,
         "missing_labels": missing,
-        "labelled": len(printable),
+        "labelled": len(express_dns) + len(normal_dns),
         "parts": public_parts,
     }
 
@@ -2215,7 +2290,8 @@ def _sku_summary(dns):
     )
 
 
-def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=None):
+def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=None,
+                         file_suffix=""):
     from frappe.utils.pdf import get_pdf
 
     _enrich_physical_lines(dns)
@@ -2370,7 +2446,8 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
         pick_rows=pick_rows, section_b=section_b)
 
     pdf_bytes = get_pdf(html)
-    return _save_output_file("d2c-pick-list-{0}.pdf".format(stamp), pdf_bytes)
+    return _save_output_file(
+        "d2c-pick-list-{0}{1}.pdf".format(stamp, file_suffix or ""), pdf_bytes)
 
 
 def _line_separator_pdf_pages(part):
@@ -2392,7 +2469,8 @@ def _line_separator_pdf_pages(part):
     return PdfReader(io.BytesIO(get_pdf(html))).pages
 
 
-def _build_combined_labels_pdf(dns, on_date, batch_no, stamp, parts=None):
+def _build_combined_labels_pdf(dns, on_date, batch_no, stamp, parts=None,
+                               file_suffix=""):
     """parts: optional list of {'part','order_range','orders','pieces','_names'}
     (chunk metadata over the SAME dns sequence). When given, a divider page is
     inserted where each line's section begins, so ONE printed stack splits
@@ -2442,7 +2520,8 @@ def _build_combined_labels_pdf(dns, on_date, batch_no, stamp, parts=None):
 
     buf = io.BytesIO()
     writer.write(buf)
-    url = _save_output_file("d2c-labels-{0}.pdf".format(stamp), buf.getvalue())
+    url = _save_output_file(
+        "d2c-labels-{0}{1}.pdf".format(stamp, file_suffix or ""), buf.getvalue())
     return url, missing
 
 

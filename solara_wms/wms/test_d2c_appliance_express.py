@@ -21,6 +21,14 @@ class TestApplianceExpressEligibility(TestCase):
         self.assertTrue(out["eligible"])
         self.assertEqual(out["kind"], "pre_kitted_combo")
 
+    def test_pre_kitted_af124_combo_is_express(self):
+        bundle = "SOL-AF-124-SIL-BAS-P6-SPY-101"
+        out = classify_lines([row("SOL-AF-124", bundle=bundle),
+                              row("SOL-SPY-101", bundle=bundle),
+                              row("SOL-AF-SIL-BASKET-P6", bundle=bundle)])
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "pre_kitted_combo")
+
     def test_loose_addon_combo_stays_normal(self):
         out = classify_lines([row("SOL-AF-501"), row("SOL-SPY-101")])
         self.assertFalse(out["eligible"])

@@ -189,6 +189,7 @@ def consume_pack_handoff(dn, awb, lines, pack_verify):
     return handoff.name
 
 
+@frappe.whitelist(methods=["GET"])
 def dispatch_pack_handoff_status(awb):
     """Fail-closed dispatch gate when the opt-in WMS pack pilot is active."""
     if not pick_handoff_required():

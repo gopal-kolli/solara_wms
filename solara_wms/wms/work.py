@@ -27,6 +27,7 @@ from solara_wms.wms.inventory_domain import (
     canonical_qty,
     complete_allocated_move,
     decimal_qty,
+    execute_allocated_pick,
     plan_replenishment,
     release_allocation,
     request_hash,
@@ -131,6 +132,9 @@ def _event_result(doc, replayed=False):
         "allocated_after": flt(doc.allocated_after),
         "executed_before": flt(doc.executed_before),
         "executed_after": flt(doc.executed_after),
+        "event_qty": flt(doc.event_qty),
+        "scanned_bin": doc.scanned_bin,
+        "exception_code": doc.exception_code,
         "movement": doc.movement,
         "replayed": bool(replayed),
     }
@@ -751,6 +755,313 @@ def complete_replenishment(
             frappe.session.user,
             work,
         ),
+    )
+    return _event_result(event)
+
+
+PICK_SHORTAGE_CODES = {
+    "Bin Empty",
+    "Quantity Short",
+    "Damaged Stock",
+    "Stock Not Found",
+    "Other",
+}
+
+
+@frappe.whitelist(methods=["POST"])
+def scan_pick(
+    idempotency_key,
+    warehouse,
+    work,
+    scanned_bin,
+    scanned_item_code,
+    qty=1,
+    device_id=None,
+    notes=None,
+):
+    """Execute one idempotent scanner pick without touching ERP stock."""
+    _require_shadow_write(warehouse)
+    key = _idempotency_key(idempotency_key)
+    _validate_bin(warehouse, scanned_bin)
+    scan_qty = _decimal(qty)
+    if scan_qty <= 0:
+        frappe.throw(_("Pick Quantity must be greater than zero"))
+    payload = {
+        "command": "Pick Scan",
+        "idempotency_key": key,
+        "warehouse": warehouse,
+        "work": work,
+        "scanned_bin": scanned_bin,
+        "scanned_item_code": scanned_item_code,
+        "qty": canonical_qty(scan_qty),
+        "device_id": (device_id or "").strip(),
+        "notes": notes or "",
+    }
+    hash_value = request_hash(payload)
+    replay = _existing_event(key, hash_value)
+    if replay:
+        return replay
+    if frappe.db.get_value(MOVEMENT_DOCTYPE, {"idempotency_key": key}, "name"):
+        _conflict(_("Idempotency Key was already used for a physical movement"))
+
+    work_row, line = _locked_work(work)
+    if work_row.warehouse != warehouse:
+        frappe.throw(_("WMS Work does not belong to warehouse {0}").format(warehouse))
+    if work_row.work_type != "Pick":
+        frappe.throw(_("Only Pick work can use this command"))
+    if work_row.status not in ("Allocated", "In Progress") or line.state not in (
+        "Allocated",
+        "In Progress",
+    ):
+        frappe.throw(_("Only open Pick work can be scanned"))
+    if scanned_bin != line.source_bin:
+        frappe.throw(_("Wrong bin: scan assigned bin {0}").format(line.source_bin))
+    if scanned_item_code != line.item_code:
+        frappe.throw(_("Wrong item: scan assigned item {0}").format(line.item_code))
+
+    balance_name = _balance_name(warehouse, line.source_bin, line.item_code)
+    locked = _locked_balances([balance_name])
+    if balance_name not in locked:
+        frappe.throw(_("Source balance does not exist"))
+    row = locked[balance_name]
+    before = BalanceState.from_values(
+        row.physical_qty, row.allocated_qty, row.hold_qty
+    )
+    after, remaining, executed = _domain(
+        execute_allocated_pick,
+        before,
+        line.allocated_qty,
+        line.executed_qty,
+        scan_qty,
+    )
+    now = now_datetime()
+    frappe.db.sql(
+        """
+        UPDATE `tabWMS Bin Balance`
+           SET physical_qty = %s, allocated_qty = %s, available_qty = %s,
+               modified = %s, modified_by = %s, last_updated_by = %s
+         WHERE name = %s AND physical_qty >= %s AND allocated_qty >= %s
+        """,
+        (
+            float(after.physical),
+            float(after.allocated),
+            float(after.available),
+            now,
+            frappe.session.user,
+            frappe.session.user,
+            balance_name,
+            float(scan_qty),
+            float(scan_qty),
+        ),
+    )
+    if frappe.db.sql("SELECT ROW_COUNT()")[0][0] != 1:
+        frappe.throw(_("Pick balance changed concurrently; retry with the same request"))
+
+    state_after = "Completed" if remaining == 0 else "In Progress"
+    frappe.db.sql(
+        """
+        UPDATE `tabWMS Work Line`
+           SET state = %s, allocated_qty = %s, executed_qty = %s
+         WHERE name = %s
+        """,
+        (state_after, float(remaining), float(executed), line.name),
+    )
+    physical_key = "pick-physical:" + hashlib.sha256(key.encode("utf-8")).hexdigest()
+    movement_payload = {
+        "movement_type": "Pick",
+        "idempotency_key": physical_key,
+        "warehouse": warehouse,
+        "source_bin": line.source_bin,
+        "item_code": line.item_code,
+        "qty": canonical_qty(scan_qty),
+        "work": work,
+    }
+    movement = _movement_doc(
+        movement_payload,
+        request_hash(movement_payload),
+        movement_type="Pick",
+        warehouse=warehouse,
+        item_code=line.item_code,
+        source_bin=line.source_bin,
+        qty=float(scan_qty),
+        source_before=flt(row.physical_qty),
+        source_after=float(after.physical),
+        device_id=payload["device_id"],
+        reference_doctype=WORK_DOCTYPE,
+        reference_name=work,
+        notes=notes,
+    )
+    frappe.db.sql(
+        """
+        UPDATE `tabWMS Bin Balance`
+           SET last_movement = %s
+         WHERE name = %s
+        """,
+        (movement.name, balance_name),
+    )
+    event = _work_event(
+        payload,
+        hash_value,
+        event_type="Pick Scan",
+        work=work,
+        warehouse=warehouse,
+        item_code=line.item_code,
+        status_before=work_row.status,
+        status_after=state_after,
+        allocated_before=flt(line.allocated_qty),
+        allocated_after=float(remaining),
+        executed_before=flt(line.executed_qty),
+        executed_after=float(executed),
+        event_qty=float(scan_qty),
+        scanned_bin=scanned_bin,
+        movement=movement.name,
+        device_id=payload["device_id"],
+        notes=notes,
+    )
+    completed_values = (
+        ", completed_at = %s, completed_by = %s" if state_after == "Completed" else ""
+    )
+    parameters = [
+        state_after,
+        event.name,
+        now,
+        frappe.session.user,
+    ]
+    if state_after == "Completed":
+        parameters.extend([now, frappe.session.user])
+    parameters.append(work)
+    frappe.db.sql(
+        f"""
+        UPDATE `tabWMS Work`
+           SET status = %s, last_event = %s, modified = %s, modified_by = %s
+               {completed_values}
+         WHERE name = %s
+        """,
+        tuple(parameters),
+    )
+    return _event_result(event)
+
+
+@frappe.whitelist(methods=["POST"])
+def close_pick_shortage(
+    idempotency_key,
+    warehouse,
+    work,
+    scanned_bin,
+    scanned_item_code,
+    exception_code,
+    device_id=None,
+    notes=None,
+):
+    """Release an open pick remainder and retain mandatory shortage evidence."""
+    _require_shadow_write(warehouse)
+    key = _idempotency_key(idempotency_key)
+    _validate_bin(warehouse, scanned_bin)
+    code = (exception_code or "").strip()
+    if code not in PICK_SHORTAGE_CODES:
+        frappe.throw(_("Select a valid Pick Shortage reason"))
+    if code == "Other" and not (notes or "").strip():
+        frappe.throw(_("Notes are required when Pick Shortage reason is Other"))
+    payload = {
+        "command": "Pick Shortage",
+        "idempotency_key": key,
+        "warehouse": warehouse,
+        "work": work,
+        "scanned_bin": scanned_bin,
+        "scanned_item_code": scanned_item_code,
+        "exception_code": code,
+        "device_id": (device_id or "").strip(),
+        "notes": notes or "",
+    }
+    hash_value = request_hash(payload)
+    replay = _existing_event(key, hash_value)
+    if replay:
+        return replay
+    if frappe.db.get_value(MOVEMENT_DOCTYPE, {"idempotency_key": key}, "name"):
+        _conflict(_("Idempotency Key was already used for a physical movement"))
+
+    work_row, line = _locked_work(work)
+    if work_row.warehouse != warehouse:
+        frappe.throw(_("WMS Work does not belong to warehouse {0}").format(warehouse))
+    if work_row.work_type != "Pick":
+        frappe.throw(_("Only Pick work can report a Pick Shortage"))
+    if work_row.status not in ("Allocated", "In Progress") or line.state not in (
+        "Allocated",
+        "In Progress",
+    ):
+        frappe.throw(_("Only open Pick work can report a shortage"))
+    if scanned_bin != line.source_bin:
+        frappe.throw(_("Wrong bin: scan assigned bin {0}").format(line.source_bin))
+    if scanned_item_code != line.item_code:
+        frappe.throw(_("Wrong item: scan assigned item {0}").format(line.item_code))
+
+    remaining = _decimal(line.allocated_qty)
+    if remaining <= 0:
+        frappe.throw(_("Pick work has no remaining allocation"))
+    balance_name = _balance_name(warehouse, line.source_bin, line.item_code)
+    locked = _locked_balances([balance_name])
+    if balance_name not in locked:
+        frappe.throw(_("Source balance does not exist"))
+    row = locked[balance_name]
+    before = BalanceState.from_values(
+        row.physical_qty, row.allocated_qty, row.hold_qty
+    )
+    after = _domain(release_allocation, before, remaining)
+    now = now_datetime()
+    frappe.db.sql(
+        """
+        UPDATE `tabWMS Bin Balance`
+           SET allocated_qty = %s, available_qty = %s, modified = %s,
+               modified_by = %s, last_updated_by = %s
+         WHERE name = %s AND allocated_qty >= %s
+        """,
+        (
+            float(after.allocated),
+            float(after.available),
+            now,
+            frappe.session.user,
+            frappe.session.user,
+            balance_name,
+            float(remaining),
+        ),
+    )
+    if frappe.db.sql("SELECT ROW_COUNT()")[0][0] != 1:
+        frappe.throw(_("Allocation changed concurrently; retry with the same request"))
+    frappe.db.sql(
+        """
+        UPDATE `tabWMS Work Line`
+           SET state = 'Short', allocated_qty = 0
+         WHERE name = %s
+        """,
+        (line.name,),
+    )
+    event = _work_event(
+        payload,
+        hash_value,
+        event_type="Pick Shortage",
+        work=work,
+        warehouse=warehouse,
+        item_code=line.item_code,
+        status_before=work_row.status,
+        status_after="Short",
+        allocated_before=float(remaining),
+        allocated_after=0,
+        executed_before=flt(line.executed_qty),
+        executed_after=flt(line.executed_qty),
+        event_qty=float(remaining),
+        scanned_bin=scanned_bin,
+        exception_code=code,
+        device_id=payload["device_id"],
+        notes=notes,
+    )
+    frappe.db.sql(
+        """
+        UPDATE `tabWMS Work`
+           SET status = 'Short', last_event = %s, completed_at = %s,
+               completed_by = %s, modified = %s, modified_by = %s
+         WHERE name = %s
+        """,
+        (event.name, now, frappe.session.user, now, frappe.session.user, work),
     )
     return _event_result(event)
 

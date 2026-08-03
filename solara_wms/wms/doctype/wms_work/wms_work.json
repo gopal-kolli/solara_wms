@@ -12,7 +12,7 @@
   ],
   "fields": [
     {"fieldname": "work_type", "fieldtype": "Select", "label": "Work Type", "options": "Pick\nReplenishment", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
-    {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Allocated\nCompleted\nCancelled", "default": "Allocated", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Allocated\nIn Progress\nCompleted\nShort\nCancelled", "default": "Allocated", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
     {"fieldname": "priority", "fieldtype": "Select", "label": "Priority", "options": "Low\nMedium\nHigh\nUrgent", "default": "Medium", "read_only": 1, "in_standard_filter": 1},
     {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1},
     {"fieldname": "assigned_to", "fieldtype": "Link", "label": "Assigned To", "options": "User", "read_only": 1, "in_standard_filter": 1},

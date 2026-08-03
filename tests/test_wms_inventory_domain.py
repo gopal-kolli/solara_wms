@@ -11,6 +11,7 @@ from solara_wms.wms.inventory_domain import (
     apply_internal_move,
     canonical_qty,
     complete_allocated_move,
+    execute_allocated_pick,
     plan_replenishment,
     release_allocation,
     request_hash,
@@ -74,6 +75,33 @@ def test_two_allocations_cannot_exceed_available_quantity():
     first = allocate_balance(BalanceState.from_values(75), 50)
     with pytest.raises(InventoryInvariantError, match="25 available, 50 requested"):
         allocate_balance(first, 50)
+
+
+def test_pick_scan_is_bounded_and_consumes_physical_and_allocation():
+    balance = BalanceState.from_values(20, allocated=12, held=2)
+    after, remaining, executed = execute_allocated_pick(balance, 10, 2, 4)
+
+    assert after.physical == 16
+    assert after.allocated == 8
+    assert after.held == 2
+    assert after.available == 6
+    assert remaining == 6
+    assert executed == 6
+
+
+def test_pick_scan_cannot_exceed_its_own_work_allocation():
+    with pytest.raises(InventoryInvariantError, match="3 remaining, 4 scanned"):
+        execute_allocated_pick(
+            BalanceState.from_values(20, allocated=10), 3, 7, 4
+        )
+
+
+def test_pick_scan_rejects_zero_negative_and_non_finite_quantities():
+    for qty in (0, -1, "NaN", "Infinity"):
+        with pytest.raises(InventoryInvariantError):
+            execute_allocated_pick(
+                BalanceState.from_values(20, allocated=10), 10, 0, qty
+            )
 
 
 def test_allocated_replenishment_conserves_quantity_and_consumes_allocation():

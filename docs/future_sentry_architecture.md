@@ -70,14 +70,21 @@ separately and reconciled to ERPNext at defined control points.
   warehouse/item/bin. Available is derived from on-hand minus allocated minus
   hold.
 - `WMS Work` and `WMS Work Line` (Phase 1 implemented for Pick and
-  Replenishment): warehouse-owned bounded demand with Allocated, Completed and
-  Cancelled states. Conditional updates prevent over-allocation.
-- `WMS Work Event` (Phase 1 implemented): append-only Allocate, Release and
-  Complete Replenishment command evidence.
+  Replenishment): warehouse-owned bounded demand with Allocated, In Progress,
+  Completed, Short and Cancelled states. Conditional updates prevent
+  over-allocation and over-picking.
+- `WMS Work Event` (Phase 1 implemented): append-only Allocate, Release, Pick
+  Scan, Pick Shortage and Complete Replenishment command evidence.
 - `WMS Movement` (Phase 1 implemented): append-only idempotent opening-balance
   and same-warehouse internal-move evidence, including before/after quantities.
-- Future scan/event stream: append-only idempotent commands retained hot for a
-  short window, then archived outside the constrained Atlas database.
+- Scanner pick execution (Phase 1 implemented): validates the assigned
+  warehouse/bin/SKU, consumes only the remaining work allocation and records a
+  compact movement/event pair. A mandatory coded shortage closes the line and
+  releases its unexecuted reservation. Picked quantity leaves the source-bin
+  physical balance and remains represented by executed work until later
+  pack/dispatch integration.
+- Future high-volume archive: retain detailed scanner commands hot for a short
+  window, then archive outside the constrained Atlas database.
 
 The high-volume scan stream, photographs and verbose request/response payloads
 must not be retained indefinitely in Atlas. Atlas was already near its database
@@ -133,8 +140,9 @@ and top SKUs can be configured without affecting stock.
   movement. Both endpoints require Shadow/Draft Handoff mode, System Manager,
   and the configured pilot warehouse. They never create ERP stock documents.
 - Implement explicit work lines, pick allocation/release, and policy-directed
-  Reserve-to-Home replenishment allocation/completion. Scanner pick execution
-  remains the next controlled increment.
+  Reserve-to-Home replenishment allocation/completion.
+- Implement bounded scanner pick execution with wrong-bin/SKU hard blocks,
+  idempotent partial scans, atomic completion and coded shortage closure.
 - Import measured HYD layout and top fast-pick SKUs.
 - Run receiving, replenishment, batch pick and blind cycle counts in shadow mode;
   compare to current process without driving ERP documents.

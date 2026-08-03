@@ -113,6 +113,44 @@ def release_allocation(balance: BalanceState, qty):
     ).validate()
 
 
+def execute_allocated_pick(
+    balance: BalanceState,
+    work_allocated,
+    work_executed,
+    qty,
+):
+    """Consume one bounded pick scan from both work and its source balance."""
+    balance.validate()
+    outstanding = decimal_qty(work_allocated)
+    executed = decimal_qty(work_executed)
+    pick_qty = decimal_qty(qty)
+    if outstanding < 0 or executed < 0:
+        raise InventoryInvariantError("Work quantities cannot be negative")
+    if pick_qty <= 0:
+        raise InventoryInvariantError("Pick quantity must be greater than zero")
+    if pick_qty > outstanding:
+        raise InventoryInvariantError(
+            f"Pick exceeds work allocation: {canonical_qty(outstanding)} remaining, "
+            f"{canonical_qty(pick_qty)} scanned"
+        )
+    if balance.allocated < pick_qty:
+        raise InventoryInvariantError(
+            f"Insufficient bin allocation: {canonical_qty(balance.allocated)} allocated, "
+            f"{canonical_qty(pick_qty)} scanned"
+        )
+    if balance.physical < pick_qty:
+        raise InventoryInvariantError(
+            f"Insufficient physical quantity: {canonical_qty(balance.physical)} physical, "
+            f"{canonical_qty(pick_qty)} scanned"
+        )
+    after = BalanceState(
+        physical=balance.physical - pick_qty,
+        allocated=balance.allocated - pick_qty,
+        held=balance.held,
+    ).validate()
+    return after, outstanding - pick_qty, executed + pick_qty
+
+
 def complete_allocated_move(source: BalanceState, target: BalanceState, qty):
     source.validate()
     target.validate()

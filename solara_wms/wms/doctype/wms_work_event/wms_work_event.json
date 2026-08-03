@@ -7,10 +7,11 @@
     "event_type", "work", "warehouse", "item_code", "idempotency_section",
     "idempotency_key", "request_hash", "state_section", "status_before",
     "status_after", "allocated_before", "allocated_after", "executed_before",
-    "executed_after", "movement", "posted_at", "posted_by", "device_id", "notes"
+    "executed_after", "scan_section", "event_qty", "scanned_bin",
+    "exception_code", "movement", "posted_at", "posted_by", "device_id", "notes"
   ],
   "fields": [
-    {"fieldname": "event_type", "fieldtype": "Select", "label": "Event Type", "options": "Allocate\nRelease\nComplete Replenishment", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "event_type", "fieldtype": "Select", "label": "Event Type", "options": "Allocate\nRelease\nPick Scan\nPick Shortage\nComplete Replenishment", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
     {"fieldname": "work", "fieldtype": "Link", "label": "Work", "options": "WMS Work", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
     {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "read_only": 1, "in_standard_filter": 1, "search_index": 1},
     {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "read_only": 1, "in_standard_filter": 1, "search_index": 1},
@@ -24,6 +25,10 @@
     {"fieldname": "allocated_after", "fieldtype": "Float", "label": "Allocated After", "read_only": 1},
     {"fieldname": "executed_before", "fieldtype": "Float", "label": "Executed Before", "read_only": 1},
     {"fieldname": "executed_after", "fieldtype": "Float", "label": "Executed After", "read_only": 1},
+    {"fieldname": "scan_section", "fieldtype": "Section Break", "label": "Scan Evidence"},
+    {"fieldname": "event_qty", "fieldtype": "Float", "label": "Event Quantity", "read_only": 1},
+    {"fieldname": "scanned_bin", "fieldtype": "Link", "label": "Scanned Bin", "options": "Warehouse Bin", "read_only": 1, "in_standard_filter": 1},
+    {"fieldname": "exception_code", "fieldtype": "Data", "label": "Exception Code", "read_only": 1, "in_standard_filter": 1},
     {"fieldname": "movement", "fieldtype": "Link", "label": "Physical Movement", "options": "WMS Movement", "read_only": 1},
     {"fieldname": "posted_at", "fieldtype": "Datetime", "label": "Posted At", "read_only": 1},
     {"fieldname": "posted_by", "fieldtype": "Link", "label": "Posted By", "options": "User", "read_only": 1},

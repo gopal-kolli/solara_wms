@@ -118,6 +118,16 @@ def test_work_ledger_is_read_only_idempotent_and_erp_isolated():
     assert "FOR UPDATE" in service
     assert "available_qty >= %s" in service
     assert "_require_shadow_write(warehouse)" in service
+    assert "def scan_pick(" in service
+    assert "def close_pick_shortage(" in service
+    assert "Pick exceeds work allocation" in (
+        ROOT / "solara_wms" / "wms" / "inventory_domain.py"
+    ).read_text()
+    assert "Pick Scan" in event_fields["event_type"]["options"]
+    assert "Pick Shortage" in event_fields["event_type"]["options"]
+    movement = json.loads((LEGACY / "wms_movement/wms_movement.json").read_text())
+    movement_fields = {field["fieldname"]: field for field in movement["fields"]}
+    assert "Pick" in movement_fields["movement_type"]["options"]
 
 
 def test_item_location_is_warehouse_scoped():

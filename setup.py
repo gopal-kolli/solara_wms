@@ -5,7 +5,7 @@ with open("requirements.txt") as f:
 
 setup(
     name="solara_wms",
-    version="1.3.0",
+    version="1.4.0",
     description="Warehouse Management System (WMS) for ERPNext",
     author="Win The Buy Box Private Limited",
     author_email="gopal@solara.in",

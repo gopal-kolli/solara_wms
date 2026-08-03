@@ -333,6 +333,19 @@ class TestAwbCourierPairs(TestCase):
         self.assertEqual([a for a, _ in pairs],
                          ["SF3720543984OLL", "SF3720543400OLL"])
 
+    def test_second_parcel_accepts_frappe_document_get_contract(self):
+        class GetOnlyDocument:
+            def __init__(self, values):
+                self.values = values
+
+            def get(self, key, default=None):
+                return self.values.get(key, default)
+
+        pairs = fulfillment._awb_courier_pairs(GetOnlyDocument({
+            "awb_number": "A1", "courier_partner": "Shadowfax",
+            "custom_awb_2": "A2"}))
+        self.assertEqual([a for a, _ in pairs], ["A1", "A2"])
+
     def test_awb_list_json_is_authoritative(self):
         pairs = fulfillment._awb_courier_pairs({
             "awb_number": "IGNORED", "courier_partner": "Shadowfax",

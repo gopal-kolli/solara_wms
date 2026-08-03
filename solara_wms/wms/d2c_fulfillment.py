@@ -1103,7 +1103,10 @@ def _awb_courier_pairs(dn):
     awbs = [a.strip() for a in str(dn.get("awb_number") or "").split(",") if a.strip()]
     cours = [c.strip() for c in str(dn.get("courier_partner") or "").split(",") if c.strip()]
     if dn.get("custom_awb_2"):
-        awbs.append(str(dn["custom_awb_2"]).strip())
+        # Frappe Document supports ``get`` but is not guaranteed to implement
+        # mapping subscription.  Keep this helper valid for both live
+        # DeliveryNote documents and the plain dicts used by batch builders.
+        awbs.append(str(dn.get("custom_awb_2")).strip())
         cours.append(str(dn.get("custom_courier_2") or dn.get("courier_partner") or "").strip())
     seen, pairs = set(), []
     for i, a in enumerate(awbs):

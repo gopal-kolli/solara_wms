@@ -56,7 +56,7 @@ def _pieces_for_dn(dn_name):
     return lines, service
 
 
-def _pieces_for_parcel(dn, lines, box_index, box_count):
+def _pieces_for_parcel(dn, lines, box_index, box_count, service_lines=None):
     """Return only the physical pieces assigned to the scanned parcel.
 
     The parcel plan is the same source used to create the labels/AWBs. A
@@ -124,8 +124,16 @@ def _pieces_for_parcel(dn, lines, box_index, box_count):
             row = dict(line)
             row["qty"] = qty
             kept.append(row)
+    # Parcel plans deliberately repeat order-level service instructions (for
+    # example SOL-INS-PERSONALISATION) on every label.  They are useful to the
+    # operator, but _pieces_for_dn() correctly excludes them from the physical
+    # checklist.  Do not turn that representation difference into a false
+    # missing-item hold; only unresolved *physical* plan rows belong here.
+    service_codes = {row.get("item_code") for row in (service_lines or [])
+                     if row.get("item_code")}
     missing = sorted(code for code, qty in remaining.items()
                      if qty > 0.001
+                     and code not in service_codes
                      and not (code in bundle_codes and code in resolved_bundles))
     if missing:
         return [], ("Parcel plan references unavailable contents: {0}. Do not seal; "
@@ -228,7 +236,8 @@ def pack_verify_get(code, station=None):
                            fields=["name", "verified_at", "verified_by", "pieces_expected"],
                            limit_page_length=1)
     lines, service = _pieces_for_dn(dn_name)
-    lines, parcel_error = _pieces_for_parcel(dn, lines, box_index, box_count)
+    lines, parcel_error = _pieces_for_parcel(
+        dn, lines, box_index, box_count, service_lines=service)
     if parcel_error:
         return {"status": "error", "message": parcel_error, "dn": dn_name,
                 "order": dn.get("shopify_order_number"), "awb": awb,
@@ -297,8 +306,9 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
                 "message": "Multi-box order — scan each parcel's AWB barcode."}
 
     dn = frappe.get_doc("Delivery Note", dn_name)
-    lines, _service = _pieces_for_dn(dn_name)
-    lines, parcel_error = _pieces_for_parcel(dn, lines, box_index, box_count)
+    lines, service = _pieces_for_dn(dn_name)
+    lines, parcel_error = _pieces_for_parcel(
+        dn, lines, box_index, box_count, service_lines=service)
     if parcel_error:
         return {"status": "error", "message": parcel_error}
     expected = sum(l["qty"] for l in lines)

@@ -92,6 +92,40 @@ class TestParcelPieceResolution(TestCase):
         self.assertIsNone(error)
         self.assertEqual([row['qty'] for row in resolved], [1.0, 2.0])
 
+    def test_order_service_instruction_does_not_block_physical_parcel(self):
+        dn = _Doc(custom_parcel_plan=json.dumps([
+            {'items': [
+                {'item_code': 'SIGNATURE-COMBO', 'qty': 1},
+                {'item_code': 'SOL-INS-PERSONALISATION', 'qty': 1},
+            ]},
+            {'items': [
+                {'item_code': 'BOTTLE', 'qty': 1},
+                {'item_code': 'PARCHMENT', 'qty': 1},
+                {'item_code': 'SOL-INS-PERSONALISATION', 'qty': 1},
+            ]},
+        ]))
+        lines = [
+            {'item_code': 'AIR-FRYER', 'item_name': 'Air Fryer', 'qty': 1,
+             'bundle': 'SIGNATURE-COMBO'},
+            {'item_code': 'BOTTLE', 'item_name': 'Bottle', 'qty': 1},
+            {'item_code': 'PARCHMENT', 'item_name': 'Parchment', 'qty': 1},
+        ]
+        services = [
+            {'item_code': 'SOL-INS-PERSONALISATION',
+             'item_name': 'Item Personalization', 'qty': 1},
+        ]
+
+        first_box, first_error = pack_verify._pieces_for_parcel(
+            dn, lines, 1, 2, service_lines=services)
+        second_box, second_error = pack_verify._pieces_for_parcel(
+            dn, lines, 2, 2, service_lines=services)
+
+        self.assertIsNone(first_error)
+        self.assertEqual([row['item_code'] for row in first_box], ['AIR-FRYER'])
+        self.assertIsNone(second_error)
+        self.assertEqual([row['item_code'] for row in second_box],
+                         ['BOTTLE', 'PARCHMENT'])
+
     def test_submit_requires_photo_before_any_lookup(self):
         result = pack_verify.pack_verify_submit('AWB-1', photo_url=None)
 

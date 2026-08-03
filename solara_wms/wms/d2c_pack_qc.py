@@ -158,8 +158,9 @@ def _parcel_context(code):
         return None, {"status": "need_parcel",
                       "message": "Multi-box order — scan the parcel AWB."}
     dn = frappe.get_doc("Delivery Note", dn_name)
-    lines, _service = _pieces_for_dn(dn_name)
-    lines, error = _pieces_for_parcel(dn, lines, box_index, box_count)
+    lines, service = _pieces_for_dn(dn_name)
+    lines, error = _pieces_for_parcel(
+        dn, lines, box_index, box_count, service_lines=service)
     if error:
         return None, {"status": "error", "message": error}
     return {"dn": dn, "dn_name": dn_name, "awb": awb, "box_index": box_index,

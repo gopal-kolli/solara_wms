@@ -83,6 +83,11 @@ separately and reconciled to ERPNext at defined control points.
   releases its unexecuted reservation. Picked quantity leaves the source-bin
   physical balance and remains represented by executed work until later
   pack/dispatch integration.
+- `WMS Pack Handoff` (Phase 1 implemented, opt-in): matches completed Pick work
+  to one Delivery Note parcel by warehouse, AWB, SKU and exact quantity. Pack
+  Verify consumes each work once; dispatch requires the resulting handoff while
+  the pilot gate is active. The gate defaults off and is ineffective in Disabled
+  mode, preserving the established D2C and Shopify flow.
 - Future high-volume archive: retain detailed scanner commands hot for a short
   window, then archive outside the constrained Atlas database.
 
@@ -143,6 +148,9 @@ and top SKUs can be configured without affecting stock.
   Reserve-to-Home replenishment allocation/completion.
 - Implement bounded scanner pick execution with wrong-bin/SKU hard blocks,
   idempotent partial scans, atomic completion and coded shortage closure.
+- Integrate an opt-in completed-pick handoff into the existing AWB-level Pack
+  Verify and dispatch scans without changing Shopify release, AWB creation,
+  Delivery Note submission or financial inventory.
 - Import measured HYD layout and top fast-pick SKUs.
 - Run receiving, replenishment, batch pick and blind cycle counts in shadow mode;
   compare to current process without driving ERP documents.

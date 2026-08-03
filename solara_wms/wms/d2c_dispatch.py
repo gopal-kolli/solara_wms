@@ -109,6 +109,18 @@ def scan_dispatch(code):
                 "message": "ALREADY DISPATCHED " + str(e.scanned_at)[:16] +
                            " by " + (e.scanned_by or "?") + " — DO NOT SHIP"}
 
+    from solara_wms.wms.pack_handoff import dispatch_pack_handoff_status
+    handoff = dispatch_pack_handoff_status(awb)
+    if not handoff.get("allowed"):
+        return {
+            "status": "pack_hold",
+            "awb": awb,
+            "order": frappe.db.get_value(
+                "Delivery Note", dn_name, "shopify_order_number"
+            ),
+            "message": handoff["message"],
+        }
+
     dn = frappe.get_doc("Delivery Note", dn_name)
     now = now_datetime()
     scan = frappe.get_doc({

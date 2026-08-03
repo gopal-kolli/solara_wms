@@ -49,6 +49,8 @@ def test_new_doctype_json_is_valid():
         LEGACY / "wms_work/wms_work.json",
         LEGACY / "wms_work_event/wms_work_event.json",
         LEGACY / "wms_work_line/wms_work_line.json",
+        LEGACY / "wms_pack_handoff/wms_pack_handoff.json",
+        LEGACY / "wms_pack_handoff_line/wms_pack_handoff_line.json",
         LEGACY / "wms_item_location/wms_item_location.json",
         LEGACY / "wms_settings/wms_settings.json",
         LEGACY / "warehouse_bin/warehouse_bin.json",
@@ -128,6 +130,45 @@ def test_work_ledger_is_read_only_idempotent_and_erp_isolated():
     movement = json.loads((LEGACY / "wms_movement/wms_movement.json").read_text())
     movement_fields = {field["fieldname"]: field for field in movement["fields"]}
     assert "Pick" in movement_fields["movement_type"]["options"]
+
+
+def test_pack_handoff_is_opt_in_append_only_and_one_time():
+    settings = json.loads((LEGACY / "wms_settings/wms_settings.json").read_text())
+    setting_fields = {field["fieldname"]: field for field in settings["fields"]}
+    gate = setting_fields["require_pick_handoff_for_pack"]
+    assert gate["fieldtype"] == "Check"
+    assert gate["default"] == "0"
+
+    handoff = json.loads(
+        (LEGACY / "wms_pack_handoff/wms_pack_handoff.json").read_text()
+    )
+    handoff_fields = {field["fieldname"]: field for field in handoff["fields"]}
+    line = json.loads(
+        (LEGACY / "wms_pack_handoff_line/wms_pack_handoff_line.json").read_text()
+    )
+    line_fields = {field["fieldname"]: field for field in line["fields"]}
+    assert handoff["track_changes"] == 0
+    assert handoff_fields["awb"]["unique"] == 1
+    assert handoff_fields["idempotency_key"]["unique"] == 1
+    assert line_fields["work"]["unique"] == 1
+
+    service = (ROOT / "solara_wms" / "wms" / "pack_handoff.py").read_text()
+    tree = ast.parse(service)
+    forbidden = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in {"submit", "commit"}:
+                forbidden.append(f"{node.func.attr}:{node.lineno}")
+    assert forbidden == []
+    assert "FOR UPDATE" in service
+    assert "pack_handoff IS NULL" in service
+    assert 'mode in ("Shadow", "Draft Handoff")' in service
+
+    pack = (ROOT / "solara_wms" / "wms" / "d2c_pack_verify.py").read_text()
+    dispatch = (ROOT / "solara_wms" / "wms" / "d2c_dispatch.py").read_text()
+    assert "pack_handoff_status" in pack
+    assert "consume_pack_handoff" in pack
+    assert "dispatch_pack_handoff_status" in dispatch
 
 
 def test_item_location_is_warehouse_scoped():

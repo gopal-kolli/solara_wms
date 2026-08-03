@@ -20,6 +20,10 @@ class WMSWork(Document):
         if len(self.lines or []) != 1:
             frappe.throw(_("Phase 1 WMS Work must contain exactly one line"))
         line = self.lines[0]
+        if self.parcel_awb and (
+            self.reference_doctype != "Delivery Note" or not self.reference_name
+        ):
+            frappe.throw(_("Parcel AWB work requires a Delivery Note reference"))
         for bin_name in (line.source_bin, line.target_bin):
             if not bin_name:
                 continue

@@ -7,7 +7,8 @@
     "work_type", "status", "priority", "warehouse", "assigned_to",
     "command_section", "creation_idempotency_key", "creation_request_hash",
     "created_event", "last_event", "reference_section", "reference_doctype",
-    "reference_name", "created_at", "created_by", "completed_at", "completed_by",
+    "reference_name", "parcel_awb", "pack_handoff", "packed_at",
+    "created_at", "created_by", "completed_at", "completed_by",
     "lines_section", "lines", "notes"
   ],
   "fields": [
@@ -24,6 +25,9 @@
     {"fieldname": "reference_section", "fieldtype": "Section Break", "label": "Reference"},
     {"fieldname": "reference_doctype", "fieldtype": "Link", "label": "Reference DocType", "options": "DocType", "read_only": 1},
     {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "label": "Reference Name", "options": "reference_doctype", "read_only": 1},
+    {"fieldname": "parcel_awb", "fieldtype": "Data", "label": "Parcel AWB", "read_only": 1, "in_standard_filter": 1, "search_index": 1},
+    {"fieldname": "pack_handoff", "fieldtype": "Link", "label": "Pack Handoff", "options": "WMS Pack Handoff", "read_only": 1, "in_standard_filter": 1},
+    {"fieldname": "packed_at", "fieldtype": "Datetime", "label": "Packed At", "read_only": 1},
     {"fieldname": "created_at", "fieldtype": "Datetime", "label": "Created At", "read_only": 1},
     {"fieldname": "created_by", "fieldtype": "Link", "label": "Created By", "options": "User", "read_only": 1},
     {"fieldname": "completed_at", "fieldtype": "Datetime", "label": "Completed At", "read_only": 1},

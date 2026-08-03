@@ -12,6 +12,7 @@ from solara_wms.wms.inventory_domain import (
     canonical_qty,
     complete_allocated_move,
     execute_allocated_pick,
+    match_pack_handoff,
     plan_replenishment,
     release_allocation,
     request_hash,
@@ -102,6 +103,33 @@ def test_pick_scan_rejects_zero_negative_and_non_finite_quantities():
             execute_allocated_pick(
                 BalanceState.from_values(20, allocated=10), 10, 0, qty
             )
+
+
+def test_pack_handoff_requires_exact_item_and_quantity_match():
+    matched = match_pack_handoff(
+        [{"item_code": "A", "qty": 1}, {"item_code": "A", "qty": 2},
+         {"item_code": "B", "qty": 1}],
+        [{"item_code": "A", "executed_qty": 3},
+         {"item_code": "B", "executed_qty": 1}],
+    )
+    assert matched == {"A": Decimal("3"), "B": Decimal("1")}
+
+
+@pytest.mark.parametrize(
+    "works, message",
+    [
+        ([{"item_code": "A", "executed_qty": 1}], "B: expected 1, picked 0"),
+        ([{"item_code": "A", "executed_qty": 3},
+          {"item_code": "B", "executed_qty": 1}], "A: expected 2, picked 3"),
+        ([{"item_code": "WRONG", "executed_qty": 1}], "WRONG"),
+    ],
+)
+def test_pack_handoff_rejects_missing_excess_and_wrong_items(works, message):
+    with pytest.raises(InventoryInvariantError, match=message):
+        match_pack_handoff(
+            [{"item_code": "A", "qty": 2}, {"item_code": "B", "qty": 1}],
+            works,
+        )
 
 
 def test_allocated_replenishment_conserves_quantity_and_consumes_allocation():

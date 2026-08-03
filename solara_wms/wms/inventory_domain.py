@@ -4,10 +4,41 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
+from collections import defaultdict
 
 
 class InventoryInvariantError(ValueError):
     pass
+
+
+def match_pack_handoff(expected_lines, completed_work_lines):
+    """Require completed parcel picks to match the pack piece list exactly."""
+    expected = defaultdict(lambda: Decimal("0"))
+    picked = defaultdict(lambda: Decimal("0"))
+    for row in expected_lines:
+        item = str(row.get("item_code") or "").strip()
+        qty = decimal_qty(row.get("qty", 0))
+        if not item or qty <= 0:
+            raise InventoryInvariantError("Expected pack lines require item and quantity")
+        expected[item] += qty
+    for row in completed_work_lines:
+        item = str(row.get("item_code") or "").strip()
+        qty = decimal_qty(row.get("executed_qty", 0))
+        if not item or qty <= 0:
+            raise InventoryInvariantError("Completed pick work requires item and quantity")
+        picked[item] += qty
+    if not expected:
+        raise InventoryInvariantError("Parcel has no physical pieces to hand off")
+    mismatches = []
+    for item in sorted(set(expected) | set(picked)):
+        if expected[item] != picked[item]:
+            mismatches.append(
+                f"{item}: expected {canonical_qty(expected[item])}, "
+                f"picked {canonical_qty(picked[item])}"
+            )
+    if mismatches:
+        raise InventoryInvariantError("Pick handoff mismatch — " + "; ".join(mismatches))
+    return {item: expected[item] for item in sorted(expected)}
 
 
 def decimal_qty(value) -> Decimal:

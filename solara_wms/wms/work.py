@@ -99,6 +99,9 @@ def _work_result(work_name, replayed=False):
             "assigned_to",
             "reference_doctype",
             "reference_name",
+            "parcel_awb",
+            "pack_handoff",
+            "packed_at",
             "created_event",
             "last_event",
         ],
@@ -222,6 +225,7 @@ def _create_work(
     assigned_to=None,
     reference_doctype=None,
     reference_name=None,
+    parcel_awb=None,
     device_id=None,
     notes=None,
 ):
@@ -237,6 +241,7 @@ def _create_work(
             "creation_request_hash": hash_value,
             "reference_doctype": reference_doctype,
             "reference_name": reference_name,
+            "parcel_awb": parcel_awb,
             "created_at": now_datetime(),
             "created_by": frappe.session.user,
             "notes": notes,
@@ -350,6 +355,7 @@ def create_pick_work(
     assigned_to=None,
     reference_doctype=None,
     reference_name=None,
+    parcel_awb=None,
     device_id=None,
     notes=None,
 ):
@@ -360,6 +366,9 @@ def create_pick_work(
     allocation_qty = _decimal(qty)
     if allocation_qty <= 0:
         frappe.throw(_("Pick Quantity must be greater than zero"))
+    parcel_awb = (parcel_awb or "").strip()
+    if parcel_awb and (reference_doctype != "Delivery Note" or not reference_name):
+        frappe.throw(_("Parcel AWB pick work requires a Delivery Note reference"))
     payload = {
         "command": "Allocate Pick",
         "idempotency_key": key,
@@ -371,6 +380,7 @@ def create_pick_work(
         "assigned_to": assigned_to or "",
         "reference_doctype": reference_doctype or "",
         "reference_name": reference_name or "",
+        "parcel_awb": parcel_awb,
         "device_id": (device_id or "").strip(),
         "notes": notes or "",
     }
@@ -402,6 +412,7 @@ def create_pick_work(
         assigned_to=assigned_to,
         reference_doctype=reference_doctype,
         reference_name=reference_name,
+        parcel_awb=parcel_awb,
         device_id=payload["device_id"],
         notes=notes,
     )

@@ -1,0 +1,21 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 0,
+  "engine": "InnoDB",
+  "field_order": ["work", "item_code", "qty"],
+  "fields": [
+    {"fieldname": "work", "fieldtype": "Link", "label": "WMS Work", "options": "WMS Work", "reqd": 1, "unique": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "qty", "fieldtype": "Float", "label": "Picked Quantity", "reqd": 1, "read_only": 1, "in_list_view": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 1,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Pack Handoff Line",
+  "owner": "Administrator",
+  "track_changes": 0
+}

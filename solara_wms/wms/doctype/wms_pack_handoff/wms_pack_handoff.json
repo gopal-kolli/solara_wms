@@ -1,0 +1,40 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "awb", "delivery_note", "warehouse", "pack_verify", "idempotency_section",
+    "idempotency_key", "request_hash", "lines_section", "lines", "posted_at",
+    "posted_by"
+  ],
+  "fields": [
+    {"fieldname": "awb", "fieldtype": "Data", "label": "AWB", "reqd": 1, "unique": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1},
+    {"fieldname": "delivery_note", "fieldtype": "Link", "label": "Delivery Note", "options": "Delivery Note", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "pack_verify", "fieldtype": "Link", "label": "Pack Verify", "options": "D2C Pack Verify", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "idempotency_section", "fieldtype": "Section Break", "label": "Idempotency"},
+    {"fieldname": "idempotency_key", "fieldtype": "Data", "label": "Idempotency Key", "reqd": 1, "unique": 1, "read_only": 1, "search_index": 1},
+    {"fieldname": "request_hash", "fieldtype": "Data", "label": "Request Hash", "reqd": 1, "read_only": 1},
+    {"fieldname": "lines_section", "fieldtype": "Section Break", "label": "Consumed Pick Work"},
+    {"fieldname": "lines", "fieldtype": "Table", "label": "Lines", "options": "WMS Pack Handoff Line", "reqd": 1, "read_only": 1},
+    {"fieldname": "posted_at", "fieldtype": "Datetime", "label": "Posted At", "read_only": 1},
+    {"fieldname": "posted_by", "fieldtype": "Link", "label": "Posted By", "options": "User", "read_only": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Pack Handoff",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1, "report": 1}
+  ],
+  "sort_field": "posted_at",
+  "sort_order": "DESC",
+  "title_field": "awb",
+  "track_changes": 0
+}

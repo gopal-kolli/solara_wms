@@ -3,11 +3,12 @@
   "creation": "2026-08-02 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["safety_section", "operating_mode", "pilot_warehouse", "scope_note"],
+  "field_order": ["safety_section", "operating_mode", "pilot_warehouse", "require_pick_handoff_for_pack", "scope_note"],
   "fields": [
     {"fieldname": "safety_section", "fieldtype": "Section Break", "label": "Execution Safety"},
     {"fieldname": "operating_mode", "fieldtype": "Select", "label": "Operating Mode", "options": "Disabled\nShadow\nDraft Handoff", "default": "Disabled", "reqd": 1, "description": "Disabled: no WMS mutations. Shadow: maintain an isolated physical-bin ledger without ERP stock documents. Draft Handoff: approved TEST workflows may also prepare ERP drafts but never submit them."},
     {"fieldname": "pilot_warehouse", "fieldtype": "Link", "label": "Pilot Warehouse", "options": "Warehouse", "description": "HYD/Shamshabad for the first controlled pilot. This is not an implicit fallback once multiple warehouses are active."},
+    {"fieldname": "require_pick_handoff_for_pack", "fieldtype": "Check", "label": "Require Completed Pick Before D2C Pack", "default": "0", "description": "Opt-in pilot gate. Effective only in Shadow or Draft Handoff mode; Disabled mode always leaves the current D2C pack/dispatch flow unchanged."},
     {"fieldname": "scope_note", "fieldtype": "Small Text", "label": "Scope Note", "read_only": 1, "default": "Installing this app never activates warehouse execution. TEST sign-off and an explicit mode change are required."}
   ],
   "index_web_pages_for_search": 0,

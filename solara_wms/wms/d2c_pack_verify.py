@@ -252,6 +252,8 @@ def pack_verify_get(code, station=None):
         "total_pieces": total,
         "printed_batch": dn.get("custom_prepare_batch"),
     }
+    from solara_wms.wms.pack_handoff import pack_handoff_status
+    out.update(pack_handoff_status(dn, awb, lines))
     if not prior:
         try:
             from solara_wms.wms.d2c_pack_qc import qc_state
@@ -310,6 +312,28 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
                 "order": dn.get("shopify_order_number"),
                 "message": "Already pack-verified — no second record created."}
 
+    from solara_wms.wms.pack_handoff import (
+        consume_pack_handoff,
+        pack_handoff_status,
+    )
+    handoff_state = pack_handoff_status(dn, awb, lines)
+    if handoff_state.get("pick_handoff_required") and mismatch:
+        return {
+            "status": "count_hold",
+            "dn": dn_name,
+            "awb": awb,
+            "message": "COUNT HOLD — confirmed pieces must match completed pick work.",
+        }
+    if not handoff_state.get("pick_handoff_ready"):
+        return {
+            "status": "pick_hold",
+            "dn": dn_name,
+            "awb": awb,
+            "message": "PICK HOLD — " + handoff_state.get(
+                "pick_handoff_error", "completed pick evidence is not ready"
+            ),
+        }
+
     qc_rows = frappe.get_all("D2C Pack QC", filters={"awb": awb},
                              fields=["name", "status"], limit_page_length=1)
     if qc_rows:
@@ -342,6 +366,15 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
         })
         doc.flags.ignore_permissions = True
         doc.insert(ignore_permissions=True)
+        wms_pack_handoff = consume_pack_handoff(dn, awb, lines, doc.name)
+        if wms_pack_handoff:
+            frappe.db.set_value(
+                "D2C Pack Verify",
+                doc.name,
+                "wms_pack_handoff",
+                wms_pack_handoff,
+                update_modified=False,
+            )
         pairs = _awb_courier_pairs(dn)
         required_awbs = [a for a, _courier in pairs if a] or [awb]
         verified_rows = frappe.get_all(
@@ -368,6 +401,7 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
         "dn": dn_name,
         "order": dn.get("shopify_order_number"),
         "record": doc.name,
+        "wms_pack_handoff": wms_pack_handoff,
         "awb": awb,
         "box_index": box_index or 1,
         "box_count": box_count or 1,

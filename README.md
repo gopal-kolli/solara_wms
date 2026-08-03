@@ -15,6 +15,7 @@ Warehouse Management System (WMS) for ERPNext/Frappe.
 - **WMS Movement** - Immutable, idempotent evidence for opening balances, internal moves, replenishment and picks
 - **WMS Work** - Bounded pick allocations and policy-directed replenishment work
 - **WMS Work Event** - Append-only allocation, scan, shortage, release and completion evidence
+- **WMS Pack Handoff** - Opt-in, one-time completed-pick evidence consumed by D2C Pack Verify and required at dispatch during a controlled pilot
 - **WMS Task** - Directed warehouse tasks (Putaway, Pick, Transfer, Count, Adjust)
 - **WMS ASN** - Advanced Shipping Notice for inbound receiving with variance tracking
 - **WMS Wave Pick** - Batch picking across multiple Sales Orders

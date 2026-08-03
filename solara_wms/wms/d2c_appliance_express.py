@@ -36,10 +36,15 @@ def _codes(value, defaults):
 
 
 def express_config(settings=None):
-    settings = settings or frappe.get_single("D2C Fulfillment Settings")
+    if settings is None:
+        settings = frappe.get_single("D2C Fulfillment Settings")
     raw_enabled = settings.get("appliance_express_enabled")
+    raw_qc_enabled = settings.get("appliance_express_qc_enabled")
     return {
         "enabled": bool(cint(1 if raw_enabled in (None, "") else raw_enabled)),
+        # This is deliberately independent from the daily global QC pause.
+        # It stays OFF until management explicitly enables Appliance QC.
+        "qc_enabled": bool(cint(0 if raw_qc_enabled in (None, "") else raw_qc_enabled)),
         "appliance_skus": _codes(settings.get("appliance_express_skus"),
                                   DEFAULT_APPLIANCE_SKUS),
         "prekit_bundles": _codes(settings.get("appliance_express_bundles"),
@@ -103,7 +108,7 @@ def _barcodes(item_code):
 @frappe.whitelist()
 def appliance_express_state():
     cfg = express_config()
-    return {"status": "ok", "enabled": cfg["enabled"],
+    return {"status": "ok", "enabled": cfg["enabled"], "qc_enabled": cfg["qc_enabled"],
             "station": STATION, "appliance_skus": sorted(cfg["appliance_skus"]),
             "prekit_bundles": sorted(cfg["prekit_bundles"])}
 
@@ -121,6 +126,23 @@ def appliance_express_set_enabled(enabled=1, actor=None, reason=None):
                                 else "Express workforce unavailable"))[:500]
     out["message"] = ("Appliance Express is ON for new waves." if out["enabled"] else
                       "Appliance Express is OFF; new waves use the normal lines.")
+    return out
+
+
+@frappe.whitelist()
+def appliance_express_set_qc_enabled(enabled=0, actor=None, reason=None):
+    """Persist the appliance-only QC switch until management changes it."""
+    doc = frappe.get_single("D2C Fulfillment Settings")
+    doc.appliance_express_qc_enabled = 1 if cint(enabled) else 0
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    out = appliance_express_state()
+    out["changed_by"] = actor or frappe.session.user
+    out["reason"] = (reason or ("Appliance QC enabled" if out["qc_enabled"]
+                                else "Appliance QC disabled"))[:500]
+    out["message"] = ("Independent QC is ON for Appliance Express." if out["qc_enabled"]
+                      else "Independent QC is OFF for Appliance Express until re-enabled.")
     return out
 
 
@@ -145,6 +167,10 @@ def appliance_express_get(code):
                 "station": STATION,
                 "condition_checks": ["Correct factory carton", "Carton and seal undamaged"] +
                 (["Pre-kit / Combo Ready marking present"] if decision.get("bundle") else [])})
+    if not cfg["qc_enabled"]:
+        out.update({"qc_required": False, "qc_staged": False,
+                    "qc_status": "Bypassed",
+                    "qc_reason": "Independent QC disabled for Appliance Express"})
     return out
 
 

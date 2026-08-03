@@ -35,6 +35,7 @@
   "prepare_lookback_days",
   "pack_lines",
   "appliance_express_enabled",
+  "appliance_express_qc_enabled",
   "appliance_express_skus",
   "appliance_express_bundles",
   "wave_email_recipients",
@@ -342,6 +343,13 @@
    "fieldname": "appliance_express_enabled",
    "fieldtype": "Check",
    "label": "Appliance Express Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Keep OFF to use the mandatory Express AWB, carton EAN, condition and photo controls without independent roaming QC. Remains unchanged until management toggles it.",
+   "fieldname": "appliance_express_qc_enabled",
+   "fieldtype": "Check",
+   "label": "Appliance Express Independent QC Enabled"
   },
   {
    "default": "SOL-AF-501\nSOL-AF-124\nSOL-JUC-121",

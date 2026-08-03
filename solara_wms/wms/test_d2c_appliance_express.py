@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from solara_wms.wms.d2c_appliance_express import classify_lines
+from solara_wms.wms.d2c_appliance_express import classify_lines, express_config
 
 
 def row(code, qty=1, bundle=None):
@@ -8,6 +8,13 @@ def row(code, qty=1, bundle=None):
 
 
 class TestApplianceExpressEligibility(TestCase):
+    def test_appliance_qc_defaults_off_and_requires_explicit_enable(self):
+        defaults = express_config({})
+        enabled = express_config({"appliance_express_qc_enabled": 1})
+
+        self.assertFalse(defaults["qc_enabled"])
+        self.assertTrue(enabled["qc_enabled"])
+
     def test_bare_appliance_is_express(self):
         out = classify_lines([row("SOL-AF-501")])
         self.assertTrue(out["eligible"])

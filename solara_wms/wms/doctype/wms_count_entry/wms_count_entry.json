@@ -1,0 +1,42 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "cycle_count", "cycle_count_item", "attempt", "warehouse", "bin", "item_code",
+    "counted_qty", "evidence_section", "idempotency_key", "request_hash", "device_id",
+    "counted_at", "counted_by"
+  ],
+  "fields": [
+    {"fieldname": "cycle_count", "fieldtype": "Link", "label": "Cycle Count", "options": "WMS Cycle Count", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1},
+    {"fieldname": "cycle_count_item", "fieldtype": "Data", "label": "Cycle Count Row", "reqd": 1, "read_only": 1},
+    {"fieldname": "attempt", "fieldtype": "Int", "label": "Attempt", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "read_only": 1, "in_standard_filter": 1},
+    {"fieldname": "bin", "fieldtype": "Link", "label": "Physical Bin", "options": "Warehouse Bin", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "counted_qty", "fieldtype": "Float", "label": "Counted Quantity", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "evidence_section", "fieldtype": "Section Break", "label": "Immutable Evidence"},
+    {"fieldname": "idempotency_key", "fieldtype": "Data", "label": "Idempotency Key", "reqd": 1, "unique": 1, "read_only": 1, "search_index": 1},
+    {"fieldname": "request_hash", "fieldtype": "Data", "label": "Request Hash", "reqd": 1, "read_only": 1},
+    {"fieldname": "device_id", "fieldtype": "Data", "label": "Device", "read_only": 1},
+    {"fieldname": "counted_at", "fieldtype": "Datetime", "label": "Counted At", "reqd": 1, "read_only": 1},
+    {"fieldname": "counted_by", "fieldtype": "Link", "label": "Counted By", "options": "User", "reqd": 1, "read_only": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Count Entry",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1}
+  ],
+  "sort_field": "counted_at",
+  "sort_order": "DESC",
+  "title_field": "item_code",
+  "track_changes": 0
+}

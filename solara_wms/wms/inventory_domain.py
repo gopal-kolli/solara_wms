@@ -11,6 +11,75 @@ class InventoryInvariantError(ValueError):
     pass
 
 
+def evaluate_blind_count(snapshot_qty, first_count_qty, recount_qty=None):
+    """Evaluate exact piece-count evidence without exposing the snapshot.
+
+    A mismatch is never accepted from one counter.  It requires an independent
+    recount; disagreement between counters remains an exception rather than
+    being averaged or silently adjusted.
+    """
+    snapshot = decimal_qty(snapshot_qty)
+    first = decimal_qty(first_count_qty)
+    if snapshot < 0 or first < 0:
+        raise InventoryInvariantError("Count quantities cannot be negative")
+    variance = first - snapshot
+    if variance == 0:
+        return {
+            "status": "Matched",
+            "variance_qty": Decimal("0"),
+            "accepted_qty": first,
+        }
+    if recount_qty is None:
+        return {
+            "status": "Recount Required",
+            "variance_qty": variance,
+            "accepted_qty": None,
+        }
+    recount = decimal_qty(recount_qty)
+    if recount < 0:
+        raise InventoryInvariantError("Count quantities cannot be negative")
+    if recount != first:
+        return {
+            "status": "Counter Disagreement",
+            "variance_qty": recount - snapshot,
+            "accepted_qty": None,
+        }
+    return {
+        "status": "Confirmed Variance",
+        "variance_qty": variance,
+        "accepted_qty": first,
+    }
+
+
+def reconcile_inventory_bridge(
+    atlas_qty,
+    wms_physical_qty,
+    pending_outbound_qty=0,
+    pending_inbound_qty=0,
+):
+    """Explain timing differences before declaring an inventory variance.
+
+    Atlas may already exclude an outbound Delivery Note while the units remain
+    physically allocated on the floor.  Conversely, received units can be
+    physically present before their reviewed Purchase Receipt is posted.
+    """
+    atlas = decimal_qty(atlas_qty)
+    physical = decimal_qty(wms_physical_qty)
+    outbound = decimal_qty(pending_outbound_qty)
+    inbound = decimal_qty(pending_inbound_qty)
+    if min(physical, outbound, inbound) < 0:
+        raise InventoryInvariantError("Reconciliation quantities cannot be negative")
+    adjusted_wms = physical - outbound - inbound
+    return {
+        "atlas_qty": atlas,
+        "wms_physical_qty": physical,
+        "pending_outbound_qty": outbound,
+        "pending_inbound_qty": inbound,
+        "adjusted_wms_qty": adjusted_wms,
+        "unexplained_variance_qty": adjusted_wms - atlas,
+    }
+
+
 def match_pack_handoff(expected_lines, completed_work_lines):
     """Require completed parcel picks to match the pack piece list exactly."""
     expected = defaultdict(lambda: Decimal("0"))

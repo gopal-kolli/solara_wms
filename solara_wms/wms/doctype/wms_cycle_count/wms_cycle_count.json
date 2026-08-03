@@ -17,6 +17,8 @@
     "count_frequency",
     "last_count_date",
     "assigned_to",
+    "snapshot_at",
+    "started_by",
     "counted_at",
     "section_break_items",
     "items",
@@ -26,6 +28,7 @@
     "column_break_summary",
     "total_variance_value",
     "section_break_result",
+    "review_status",
     "stock_reconciliation",
     "column_break_result",
     "wms_task",
@@ -44,7 +47,7 @@
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
-      "options": "Draft\nIn Progress\nCompleted\nCancelled",
+      "options": "Draft\nIn Progress\nRecount Required\nVariance Review\nCompleted\nInvalidated\nCancelled",
       "default": "Draft",
       "in_list_view": 1,
       "in_standard_filter": 1,
@@ -114,6 +117,19 @@
       "in_standard_filter": 1
     },
     {
+      "fieldname": "snapshot_at",
+      "fieldtype": "Datetime",
+      "label": "Frozen Snapshot At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "started_by",
+      "fieldtype": "Link",
+      "label": "Started By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
       "fieldname": "counted_at",
       "fieldtype": "Datetime",
       "label": "Counted At",
@@ -165,12 +181,19 @@
       "collapsible": 1
     },
     {
+      "fieldname": "review_status",
+      "fieldtype": "Select",
+      "label": "Variance Review Status",
+      "options": "\nNot Required\nRecount Pending\nInvestigation Required\nSource Correction Required\nAdjustment Approval Required\nResolved",
+      "read_only": 1
+    },
+    {
       "fieldname": "stock_reconciliation",
       "fieldtype": "Link",
       "label": "Stock Reconciliation",
       "options": "Stock Reconciliation",
       "read_only": 1,
-      "description": "Auto-created if variances found"
+      "description": "Optional draft created only after separate variance approval"
     },
     {
       "fieldname": "column_break_result",
@@ -247,6 +270,16 @@
       "role": "Stock User",
       "share": 0,
       "write": 1
+    },
+    {
+      "permlevel": 1,
+      "read": 1,
+      "role": "System Manager"
+    },
+    {
+      "permlevel": 1,
+      "read": 1,
+      "role": "Stock Manager"
     }
   ],
   "sort_field": "modified",

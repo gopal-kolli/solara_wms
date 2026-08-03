@@ -44,9 +44,10 @@ There are two deliberately different truths:
 
 An internal HYD Home-to-Reserve movement changes only WMS physical state. It
 must not create a same-warehouse Stock Entry. A movement between two ERPNext
-warehouses prepares a draft Material Transfer for review. Cycle-count variances
-prepare a draft Stock Reconciliation. Receiving prepares a draft Purchase
-Receipt. No floor action submits an accounting or stock document.
+warehouses prepares a draft Material Transfer for review. A cycle-count
+variance requires an independent recount and cause classification before a
+separate manager may prepare a draft Stock Reconciliation. Receiving prepares a
+draft Purchase Receipt. No floor action submits an accounting or stock document.
 
 The current Shopify automation submits Delivery Notes early to mint AWBs. WMS
 must therefore not interpret ERPNext `actual_qty` as the precise on-floor state
@@ -88,6 +89,17 @@ separately and reconciled to ERPNext at defined control points.
   Verify consumes each work once; dispatch requires the resulting handoff while
   the pilot gate is active. The gate defaults off and is ineffective in Disabled
   mode, preserving the established D2C and Shopify flow.
+- Frozen blind bin counts (Phase 1 implemented, opt-in): the floor task exposes
+  SKU/bin but not the WMS snapshot. Every listed item requires explicit evidence,
+  unexpected SKUs can be recorded, and a mismatch requires attempt 2 by a
+  different operator. `WMS Count Entry` is append-only and idempotent. Any
+  physical movement after the snapshot invalidates the count; no count endpoint
+  creates an ERP stock document.
+- WMS-versus-Atlas reconciliation bridge (Phase 1 implemented, opt-in): compares
+  warehouse totals every 15 minutes when enabled, removes only known open D2C
+  outbound timing from the physical total, and reports the remaining unexplained
+  variance. The compact monitor records current status and logs only status
+  transitions; it never adjusts inventory.
 - Future high-volume archive: retain detailed scanner commands hot for a short
   window, then archive outside the constrained Atlas database.
 
@@ -180,11 +192,16 @@ Shopify order/inventory flows remain unchanged.
 2. Two simultaneous pickers cannot exceed allocated quantity.
 3. Internal bin move changes no ERPNext Stock Ledger Entry.
 4. Inter-warehouse movement creates a draft Stock Entry only.
-5. Count with an uncounted line cannot complete.
-6. Count variance creates a draft Stock Reconciliation only.
+5. Count with an uncounted line cannot complete; a balance movement after the
+   frozen snapshot invalidates the count.
+6. The first variance requires an independent second counter. Matching recounts
+   enter cause review; disagreements remain blocked. No count automatically
+   creates a Stock Reconciliation.
 7. Receipt creates a draft Purchase Receipt only.
 8. Operator cannot read or act in an unassigned warehouse.
 9. Product Bundles expand to physical components before allocation.
 10. Existing Shopify release, pack verify and dispatch behaviour is unchanged.
 11. 4x synthetic load meets latency/error targets without lock-wait growth.
 12. Disabling the WMS execution gate returns operations to the existing process.
+13. WMS-versus-Atlas monitoring separates supported outbound timing from an
+    unexplained difference and never writes a stock document.

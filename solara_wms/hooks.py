@@ -4,7 +4,7 @@ app_publisher = "Win The Buy Box Private Limited"
 app_description = "Warehouse Management System for ERPNext - bin locations and directed warehouse tasks"
 app_email = "gopal@solara.in"
 app_license = "MIT"
-app_version = "1.5.0"
+app_version = "1.6.0"
 
 # Required apps
 required_apps = ["frappe", "erpnext"]
@@ -50,6 +50,7 @@ scheduler_events = {
             "solara_wms.wms.d2c_fulfillment.release_d2c_shipments",
             "solara_wms.wms.d2c_fulfillment.fetch_d2c_labels",
             "solara_wms.wms.d2c_fulfillment.run_prepare_waves",
+            "solara_wms.wms.inventory_accuracy.scheduled_inventory_reconciliation",
         ],
         # Ops Google Sheet mirror — gated by ops_sheet_enabled; secrets in site config.
         "*/30 * * * *": [

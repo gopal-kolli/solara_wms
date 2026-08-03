@@ -1,224 +1,85 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt
 
-from solara_wms.wms.safety import require_wms_mode
+from solara_wms.wms import inventory_accuracy
 
 
 class WMSCycleCount(Document):
-    """
-    WMS Cycle Count - Scheduled inventory counting.
-    Enhanced version of ModernWMS StockTakingEntity.
-
-    Features:
-      - ABC classification support
-      - Fetches book qty from ERPNext Bin
-      - Auto-calculates variances (qty, %, value)
-      - Creates Stock Reconciliation for discrepancies
-
-    Workflow: Draft -> In Progress -> Completed
-    """
+    """Frozen, bin-level blind count controlled through scanner APIs."""
 
     def validate(self):
-        self.update_totals()
-
-    def update_totals(self):
-        """Update summary counts."""
         self.total_items = len(self.items or [])
         self.items_with_variance = sum(
-            1 for r in (self.items or [])
-            if r.row_status == "Variance"
+            1 for row in (self.items or [])
+            if row.row_status in ("Confirmed Variance", "Counter Disagreement")
         )
         self.total_variance_value = sum(
-            flt(r.variance_value) for r in (self.items or [])
+            flt(row.variance_value) for row in (self.items or [])
         )
 
     @frappe.whitelist()
     def populate_items_from_warehouse(self):
-        """
-        Fetch all items with stock in the selected warehouse from ERPNext Bin.
-        Populates the items child table.
-        """
-        if not self.warehouse:
-            frappe.throw(_("Select a warehouse first"))
-
-        filters = {"warehouse": self.warehouse, "actual_qty": [">", 0]}
-
-        bins = frappe.get_all(
-            "Bin",
-            filters=filters,
-            fields=["item_code", "actual_qty", "valuation_rate"],
+        """Preview WMS balances while Draft; start_count takes the final snapshot."""
+        if self.status != "Draft":
+            frappe.throw(_("Count scope cannot change after counting starts"))
+        if not self.warehouse or not self.bin:
+            frappe.throw(_("Select a warehouse and physical bin first"))
+        balances = frappe.get_all(
+            "WMS Bin Balance",
+            filters={"warehouse": self.warehouse, "bin": self.bin},
+            fields=["name", "item_code", "physical_qty", "last_movement"],
             order_by="item_code asc",
         )
-
-        if not bins:
-            frappe.msgprint(_("No items with stock found in this warehouse"))
-            return
-
+        if not balances:
+            frappe.throw(_("No WMS balances were found in this physical bin"))
         self.items = []
-        for bin_data in bins:
-            item_name = frappe.db.get_value("Item", bin_data.item_code, "item_name")
-            self.append("items", {
-                "item_code": bin_data.item_code,
-                "item_name": item_name or "",
-                "book_qty": flt(bin_data.actual_qty),
-                "valuation_rate": flt(bin_data.valuation_rate),
-            })
-
-        self.update_totals()
+        for balance in balances:
+            item = frappe.db.get_value(
+                "Item", balance.item_code, ["item_name", "stock_uom"], as_dict=True
+            )
+            valuation_rate = frappe.db.get_value(
+                "Bin",
+                {"item_code": balance.item_code, "warehouse": self.warehouse},
+                "valuation_rate",
+            )
+            self.append(
+                "items",
+                {
+                    "item_code": balance.item_code,
+                    "item_name": item.item_name if item else "",
+                    "uom": item.stock_uom if item else "",
+                    "bin": self.bin,
+                    "snapshot_balance": balance.name,
+                    "snapshot_movement": balance.last_movement,
+                    "book_qty": flt(balance.physical_qty),
+                    "valuation_rate": flt(valuation_rate),
+                    "row_status": "Pending",
+                },
+            )
         self.save()
-
-        frappe.msgprint(
-            _("Populated {0} items from warehouse {1}").format(
-                len(self.items), self.warehouse
-            ),
-            indicator="green"
-        )
+        return {"items": len(self.items)}
 
     @frappe.whitelist()
     def fetch_book_quantities(self):
-        """
-        Refresh book quantities from ERPNext Bin for all items.
-        Call this right before counting to get latest figures.
-        """
-        if not self.items:
-            frappe.throw(_("No items to fetch quantities for"))
-
-        for row in self.items:
-            bin_data = frappe.db.get_value(
-                "Bin",
-                {"item_code": row.item_code, "warehouse": self.warehouse},
-                ["actual_qty", "valuation_rate"],
-                as_dict=True,
-            )
-            if bin_data:
-                row.book_qty = flt(bin_data.actual_qty)
-                row.valuation_rate = flt(bin_data.valuation_rate)
-            else:
-                row.book_qty = 0
-                row.valuation_rate = 0
-
-        self.save()
-        frappe.msgprint(_("Book quantities refreshed"), indicator="green")
-
-    # ─── STATUS TRANSITIONS ──────────────────────────────────
+        """Refresh the Draft preview only; active snapshots are immutable."""
+        if self.status != "Draft":
+            frappe.throw(_("Reference quantities cannot change after counting starts"))
+        return self.populate_items_from_warehouse()
 
     @frappe.whitelist()
     def start_count(self):
-        """Draft -> In Progress."""
-        if self.status != "Draft":
-            frappe.throw(_("Only Draft counts can be started"))
-        if not self.items:
-            frappe.throw(_("Add items before starting the count"))
-
-        self.status = "In Progress"
-        self.save()
-        frappe.msgprint(_("Cycle count started"), indicator="blue")
+        return inventory_accuracy.start_blind_count(self.name)
 
     @frappe.whitelist()
     def complete_count(self):
-        """
-        In Progress -> Completed.
-        Calculates variances and creates Stock Reconciliation if needed.
-        """
-        require_wms_mode("Draft Handoff")
-        if self.status != "In Progress":
-            frappe.throw(_("Only In Progress counts can be completed"))
-
-        error_log = []
-
-        # Calculate variances
-        for row in self.items:
-            if row.counted_qty is not None and row.counted_qty != "":
-                row.variance_qty = flt(row.counted_qty) - flt(row.book_qty)
-
-                if flt(row.book_qty) != 0:
-                    row.variance_pct = (flt(row.variance_qty) / flt(row.book_qty)) * 100
-                else:
-                    row.variance_pct = 100 if flt(row.variance_qty) != 0 else 0
-
-                row.variance_value = flt(row.variance_qty) * flt(row.valuation_rate)
-
-                if flt(row.variance_qty) == 0:
-                    row.row_status = "Matched"
-                else:
-                    row.row_status = "Variance"
-            else:
-                # A blank count is missing evidence, never an implicit match.
-                frappe.throw(
-                    _("Counted Quantity is required for item {0}").format(row.item_code)
-                )
-
-        self.update_totals()
-
-        # Create Stock Reconciliation if variances exist
-        items_with_diff = [
-            row for row in self.items
-            if row.row_status == "Variance" and flt(row.variance_qty) != 0
-        ]
-
-        if items_with_diff:
-            try:
-                sr = frappe.new_doc("Stock Reconciliation")
-                sr.company = (
-                    frappe.defaults.get_user_default("company")
-                    or "Win The Buy Box Private Limited"
-                )
-                sr.purpose = "Stock Reconciliation"
-
-                for row in items_with_diff:
-                    sr.append("items", {
-                        "item_code": row.item_code,
-                        "warehouse": self.warehouse,
-                        "qty": flt(row.counted_qty),
-                        "batch_no": row.batch_no or "",
-                    })
-
-                # Cycle-count approval must be segregated from counting. Create
-                # a draft only; a Stock Manager reviews and submits it.
-                sr.insert()
-                self.stock_reconciliation = sr.name
-
-            except Exception as e:
-                error_log.append(f"Stock Reconciliation creation failed: {str(e)}")
-
-        self.counted_at = now_datetime()
-        self.last_count_date = now_datetime().date()
-        self.status = "Completed"
-        self.error_log = "\n".join(error_log) if error_log else ""
-        self.save()
-
-        if error_log:
-            frappe.msgprint(
-                _("Count completed with warnings. Check Error Log."),
-                indicator="orange"
-            )
-        else:
-            msg = _("Cycle count completed.")
-            if self.stock_reconciliation:
-                msg += _(" Stock Reconciliation: {0}").format(
-                    f'<a href="/app/stock-reconciliation/{self.stock_reconciliation}">'
-                    f'{self.stock_reconciliation}</a>'
-                )
-            elif not items_with_diff:
-                msg += _(" No variances found - all items match.")
-            frappe.msgprint(msg, indicator="green")
-
-        return {
-            "status": self.status,
-            "items_with_variance": self.items_with_variance,
-            "total_variance_value": self.total_variance_value,
-            "stock_reconciliation": self.stock_reconciliation,
-            "errors": error_log,
-        }
+        return inventory_accuracy.finalize_blind_count(self.name)
 
     @frappe.whitelist()
     def cancel_count(self):
-        """Cancel the count (any status except Completed)."""
         if self.status == "Completed":
             frappe.throw(_("Completed counts cannot be cancelled"))
-
         self.status = "Cancelled"
         self.save()
-        frappe.msgprint(_("Cycle count cancelled"), indicator="red")
+        return {"status": self.status}

@@ -9,8 +9,15 @@
     "item_name",
     "bin",
     "column_break_1",
+    "snapshot_balance",
+    "snapshot_movement",
     "book_qty",
     "counted_qty",
+    "counted_by",
+    "counted_at",
+    "recount_qty",
+    "recounted_by",
+    "recounted_at",
     "uom",
     "section_break_variance",
     "variance_qty",
@@ -22,6 +29,10 @@
     "batch_no",
     "column_break_4",
     "row_status",
+    "variance_reason",
+    "review_status",
+    "reference_doctype",
+    "reference_name",
     "error_message"
   ],
   "fields": [
@@ -52,19 +63,72 @@
       "fieldtype": "Column Break"
     },
     {
+      "fieldname": "snapshot_balance",
+      "fieldtype": "Link",
+      "label": "Snapshot Balance",
+      "options": "WMS Bin Balance",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
+      "fieldname": "snapshot_movement",
+      "fieldtype": "Link",
+      "label": "Snapshot Last Movement",
+      "options": "WMS Movement",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
       "fieldname": "book_qty",
       "fieldtype": "Float",
       "label": "Book Qty",
       "read_only": 1,
       "in_list_view": 1,
-      "description": "Current system quantity (from ERPNext Bin)"
+      "description": "Frozen WMS bin quantity; hidden from floor counters",
+      "permlevel": 1
     },
     {
       "fieldname": "counted_qty",
       "fieldtype": "Float",
       "label": "Counted Qty",
       "in_list_view": 1,
-      "description": "Physical count entered by operator"
+      "description": "First blind count recorded through the scanner API",
+      "read_only": 1
+    },
+    {
+      "fieldname": "counted_by",
+      "fieldtype": "Link",
+      "label": "First Counter",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "counted_at",
+      "fieldtype": "Datetime",
+      "label": "First Count At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "recount_qty",
+      "fieldtype": "Float",
+      "label": "Independent Recount Qty",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
+      "fieldname": "recounted_by",
+      "fieldtype": "Link",
+      "label": "Recounted By",
+      "options": "User",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
+      "fieldname": "recounted_at",
+      "fieldtype": "Datetime",
+      "label": "Recounted At",
+      "read_only": 1,
+      "permlevel": 1
     },
     {
       "fieldname": "uom",
@@ -129,10 +193,42 @@
       "fieldname": "row_status",
       "fieldtype": "Select",
       "label": "Status",
-      "options": "Pending\nCounted\nVariance\nMatched",
+      "options": "Pending\nCounted\nRecount Required\nCounter Disagreement\nConfirmed Variance\nMatched\nInvalidated",
       "default": "Pending",
       "in_list_view": 1,
       "read_only": 1
+    },
+    {
+      "fieldname": "variance_reason",
+      "fieldtype": "Select",
+      "label": "Variance Reason",
+      "options": "\nLocation Error\nUnbooked Receipt\nUnbooked Dispatch\nUnbooked Transfer\nDamage / Hold\nCounting Error\nConfirmed Loss / Gain\nUnknown",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
+      "fieldname": "review_status",
+      "fieldtype": "Select",
+      "label": "Review Status",
+      "options": "\nPending\nSource Correction Required\nAdjustment Approval Required\nResolved",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Link",
+      "label": "Cause Reference Type",
+      "options": "DocType",
+      "read_only": 1,
+      "permlevel": 1
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Dynamic Link",
+      "label": "Cause Reference",
+      "options": "reference_doctype",
+      "read_only": 1,
+      "permlevel": 1
     },
     {
       "fieldname": "error_message",

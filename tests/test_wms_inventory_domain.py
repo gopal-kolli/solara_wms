@@ -11,10 +11,12 @@ from solara_wms.wms.inventory_domain import (
     apply_internal_move,
     canonical_qty,
     complete_allocated_move,
+    evaluate_blind_count,
     execute_allocated_pick,
     match_pack_handoff,
     plan_replenishment,
     release_allocation,
+    reconcile_inventory_bridge,
     request_hash,
 )
 
@@ -162,3 +164,39 @@ def test_replenishment_is_not_created_at_or_above_minimum():
             maximum_qty=200,
             replenish_qty=150,
         )
+
+
+def test_blind_count_match_needs_no_recount():
+    result = evaluate_blind_count(25, 25)
+    assert result["status"] == "Matched"
+    assert result["accepted_qty"] == Decimal("25")
+
+
+def test_blind_count_mismatch_requires_same_independent_recount():
+    first = evaluate_blind_count(25, 23)
+    confirmed = evaluate_blind_count(25, 23, 23)
+    disagreed = evaluate_blind_count(25, 23, 24)
+
+    assert first["status"] == "Recount Required"
+    assert first["accepted_qty"] is None
+    assert confirmed["status"] == "Confirmed Variance"
+    assert confirmed["variance_qty"] == Decimal("-2")
+    assert disagreed["status"] == "Counter Disagreement"
+    assert disagreed["accepted_qty"] is None
+
+
+@pytest.mark.parametrize("qty", [-1, "NaN", "Infinity"])
+def test_blind_count_rejects_invalid_quantity(qty):
+    with pytest.raises(InventoryInvariantError):
+        evaluate_blind_count(10, qty)
+
+
+def test_reconciliation_bridge_separates_timing_from_unexplained_variance():
+    result = reconcile_inventory_bridge(
+        atlas_qty=90,
+        wms_physical_qty=105,
+        pending_outbound_qty=10,
+        pending_inbound_qty=5,
+    )
+    assert result["adjusted_wms_qty"] == Decimal("90")
+    assert result["unexplained_variance_qty"] == Decimal("0")

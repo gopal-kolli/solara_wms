@@ -150,9 +150,9 @@ def get_blind_count_task(cycle_count):
             {
                 "item_code": row.item_code,
                 "bin": row.bin,
-                "first_count_recorded": row.counted_qty not in (None, ""),
+                "first_count_recorded": bool(row.counted_at),
                 "recount_required": row.row_status == "Recount Required",
-                "recount_recorded": row.recount_qty not in (None, ""),
+                "recount_recorded": bool(row.recounted_at),
             }
             for row in doc.items
         ],
@@ -313,13 +313,13 @@ def finalize_blind_count(cycle_count):
     review = []
     variance_value = 0
     for row in doc.items:
-        if row.counted_qty in (None, ""):
+        if not row.counted_at:
             frappe.throw(_("Every listed item requires a zero or positive count"))
         try:
             result = evaluate_blind_count(
                 row.book_qty,
                 row.counted_qty,
-                row.recount_qty if row.recount_qty not in (None, "") else None,
+                row.recount_qty if row.recounted_at else None,
             )
         except InventoryInvariantError as exc:
             frappe.throw(_(str(exc)))

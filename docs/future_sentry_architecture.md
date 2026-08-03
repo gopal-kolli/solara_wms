@@ -69,10 +69,11 @@ separately and reconciled to ERPNext at defined control points.
 - `WMS Bin Balance` (Phase 1 implemented): compact mutable summary per
   warehouse/item/bin. Available is derived from on-hand minus allocated minus
   hold.
-- Future `WMS Work`: header per wave/receipt/count/transfer, with explicit state
-  transitions and warehouse ownership.
-- Future `WMS Work Line`: bounded demand, source/target location and scanned
-  quantities. Conditional updates enforce no over-pick.
+- `WMS Work` and `WMS Work Line` (Phase 1 implemented for Pick and
+  Replenishment): warehouse-owned bounded demand with Allocated, Completed and
+  Cancelled states. Conditional updates prevent over-allocation.
+- `WMS Work Event` (Phase 1 implemented): append-only Allocate, Release and
+  Complete Replenishment command evidence.
 - `WMS Movement` (Phase 1 implemented): append-only idempotent opening-balance
   and same-warehouse internal-move evidence, including before/after quantities.
 - Future scan/event stream: append-only idempotent commands retained hot for a
@@ -131,7 +132,9 @@ and top SKUs can be configured without affecting stock.
 - Implement physical balance, idempotent opening count and atomic internal-bin
   movement. Both endpoints require Shadow/Draft Handoff mode, System Manager,
   and the configured pilot warehouse. They never create ERP stock documents.
-- Implement explicit work lines and allocation/replenishment commands next.
+- Implement explicit work lines, pick allocation/release, and policy-directed
+  Reserve-to-Home replenishment allocation/completion. Scanner pick execution
+  remains the next controlled increment.
 - Import measured HYD layout and top fast-pick SKUs.
 - Run receiving, replenishment, batch pick and blind cycle counts in shadow mode;
   compare to current process without driving ERP documents.

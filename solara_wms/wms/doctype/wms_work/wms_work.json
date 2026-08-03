@@ -1,0 +1,51 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "work_type", "status", "priority", "warehouse", "assigned_to",
+    "command_section", "creation_idempotency_key", "creation_request_hash",
+    "created_event", "last_event", "reference_section", "reference_doctype",
+    "reference_name", "created_at", "created_by", "completed_at", "completed_by",
+    "lines_section", "lines", "notes"
+  ],
+  "fields": [
+    {"fieldname": "work_type", "fieldtype": "Select", "label": "Work Type", "options": "Pick\nReplenishment", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Allocated\nCompleted\nCancelled", "default": "Allocated", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "priority", "fieldtype": "Select", "label": "Priority", "options": "Low\nMedium\nHigh\nUrgent", "default": "Medium", "read_only": 1, "in_standard_filter": 1},
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1},
+    {"fieldname": "assigned_to", "fieldtype": "Link", "label": "Assigned To", "options": "User", "read_only": 1, "in_standard_filter": 1},
+    {"fieldname": "command_section", "fieldtype": "Section Break", "label": "Creation Command"},
+    {"fieldname": "creation_idempotency_key", "fieldtype": "Data", "label": "Creation Idempotency Key", "reqd": 1, "unique": 1, "read_only": 1, "search_index": 1},
+    {"fieldname": "creation_request_hash", "fieldtype": "Data", "label": "Creation Request Hash", "reqd": 1, "read_only": 1},
+    {"fieldname": "created_event", "fieldtype": "Link", "label": "Created Event", "options": "WMS Work Event", "read_only": 1},
+    {"fieldname": "last_event", "fieldtype": "Link", "label": "Last Event", "options": "WMS Work Event", "read_only": 1},
+    {"fieldname": "reference_section", "fieldtype": "Section Break", "label": "Reference"},
+    {"fieldname": "reference_doctype", "fieldtype": "Link", "label": "Reference DocType", "options": "DocType", "read_only": 1},
+    {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "label": "Reference Name", "options": "reference_doctype", "read_only": 1},
+    {"fieldname": "created_at", "fieldtype": "Datetime", "label": "Created At", "read_only": 1},
+    {"fieldname": "created_by", "fieldtype": "Link", "label": "Created By", "options": "User", "read_only": 1},
+    {"fieldname": "completed_at", "fieldtype": "Datetime", "label": "Completed At", "read_only": 1},
+    {"fieldname": "completed_by", "fieldtype": "Link", "label": "Completed By", "options": "User", "read_only": 1},
+    {"fieldname": "lines_section", "fieldtype": "Section Break", "label": "Work Lines"},
+    {"fieldname": "lines", "fieldtype": "Table", "label": "Lines", "options": "WMS Work Line", "reqd": 1, "read_only": 1},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes", "read_only": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Work",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1, "report": 1}
+  ],
+  "sort_field": "created_at",
+  "sort_order": "DESC",
+  "title_field": "work_type",
+  "track_changes": 0
+}

@@ -102,6 +102,10 @@ def _existing_movement(idempotency_key, expected_hash):
         MOVEMENT_DOCTYPE, {"idempotency_key": idempotency_key}, "name"
     )
     if not name:
+        if frappe.db.exists("DocType", "WMS Work Event") and frappe.db.get_value(
+            "WMS Work Event", {"idempotency_key": idempotency_key}, "name"
+        ):
+            _conflict(_("Idempotency Key was already used for a work command"))
         return None
     doc = frappe.get_doc(MOVEMENT_DOCTYPE, name)
     if doc.request_hash != expected_hash:

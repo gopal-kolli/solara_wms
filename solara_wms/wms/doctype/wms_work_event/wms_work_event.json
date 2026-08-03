@@ -1,0 +1,49 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "event_type", "work", "warehouse", "item_code", "idempotency_section",
+    "idempotency_key", "request_hash", "state_section", "status_before",
+    "status_after", "allocated_before", "allocated_after", "executed_before",
+    "executed_after", "movement", "posted_at", "posted_by", "device_id", "notes"
+  ],
+  "fields": [
+    {"fieldname": "event_type", "fieldtype": "Select", "label": "Event Type", "options": "Allocate\nRelease\nComplete Replenishment", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "work", "fieldtype": "Link", "label": "Work", "options": "WMS Work", "reqd": 1, "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
+    {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "read_only": 1, "in_standard_filter": 1, "search_index": 1},
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "read_only": 1, "in_standard_filter": 1, "search_index": 1},
+    {"fieldname": "idempotency_section", "fieldtype": "Section Break", "label": "Idempotency"},
+    {"fieldname": "idempotency_key", "fieldtype": "Data", "label": "Idempotency Key", "reqd": 1, "unique": 1, "read_only": 1, "search_index": 1},
+    {"fieldname": "request_hash", "fieldtype": "Data", "label": "Request Hash", "reqd": 1, "read_only": 1},
+    {"fieldname": "state_section", "fieldtype": "Section Break", "label": "State Evidence"},
+    {"fieldname": "status_before", "fieldtype": "Data", "label": "Status Before", "read_only": 1},
+    {"fieldname": "status_after", "fieldtype": "Data", "label": "Status After", "read_only": 1},
+    {"fieldname": "allocated_before", "fieldtype": "Float", "label": "Allocated Before", "read_only": 1},
+    {"fieldname": "allocated_after", "fieldtype": "Float", "label": "Allocated After", "read_only": 1},
+    {"fieldname": "executed_before", "fieldtype": "Float", "label": "Executed Before", "read_only": 1},
+    {"fieldname": "executed_after", "fieldtype": "Float", "label": "Executed After", "read_only": 1},
+    {"fieldname": "movement", "fieldtype": "Link", "label": "Physical Movement", "options": "WMS Movement", "read_only": 1},
+    {"fieldname": "posted_at", "fieldtype": "Datetime", "label": "Posted At", "read_only": 1},
+    {"fieldname": "posted_by", "fieldtype": "Link", "label": "Posted By", "options": "User", "read_only": 1},
+    {"fieldname": "device_id", "fieldtype": "Data", "label": "Device ID", "read_only": 1},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes", "read_only": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 0,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Work Event",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock Manager", "read": 1, "report": 1, "export": 1},
+    {"role": "Stock User", "read": 1, "report": 1}
+  ],
+  "sort_field": "posted_at",
+  "sort_order": "DESC",
+  "title_field": "event_type",
+  "track_changes": 0
+}

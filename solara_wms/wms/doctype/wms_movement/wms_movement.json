@@ -10,7 +10,7 @@
     "reference_section", "reference_doctype", "reference_name", "posted_at", "posted_by", "notes"
   ],
   "fields": [
-    {"fieldname": "movement_type", "fieldtype": "Select", "label": "Movement Type", "options": "Opening Balance\nInternal Move\nCount Adjustment\nReversal", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "read_only": 1},
+    {"fieldname": "movement_type", "fieldtype": "Select", "label": "Movement Type", "options": "Opening Balance\nInternal Move\nReplenishment\nCount Adjustment\nReversal", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "read_only": 1},
     {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Posted\nReversed", "default": "Posted", "reqd": 1, "in_list_view": 1, "read_only": 1},
     {"fieldname": "warehouse", "fieldtype": "Link", "label": "Warehouse", "options": "Warehouse", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},
     {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1, "search_index": 1, "read_only": 1},

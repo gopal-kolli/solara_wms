@@ -46,6 +46,9 @@ def test_new_doctype_json_is_valid():
     paths = (
         LEGACY / "wms_bin_balance/wms_bin_balance.json",
         LEGACY / "wms_movement/wms_movement.json",
+        LEGACY / "wms_work/wms_work.json",
+        LEGACY / "wms_work_event/wms_work_event.json",
+        LEGACY / "wms_work_line/wms_work_line.json",
         LEGACY / "wms_item_location/wms_item_location.json",
         LEGACY / "wms_settings/wms_settings.json",
         LEGACY / "warehouse_bin/warehouse_bin.json",
@@ -88,6 +91,33 @@ def test_shadow_inventory_service_has_atomic_lock_and_no_erp_posting():
     assert 'require_wms_mode("Shadow", "Draft Handoff")' in source
     assert "class IdempotencyConflict(frappe.ValidationError)" in source
     assert "http_status_code = 409" in source
+
+
+def test_work_ledger_is_read_only_idempotent_and_erp_isolated():
+    work = json.loads((LEGACY / "wms_work/wms_work.json").read_text())
+    event = json.loads((LEGACY / "wms_work_event/wms_work_event.json").read_text())
+    line = json.loads((LEGACY / "wms_work_line/wms_work_line.json").read_text())
+    work_fields = {field["fieldname"]: field for field in work["fields"]}
+    event_fields = {field["fieldname"]: field for field in event["fields"]}
+
+    assert work["track_changes"] == 0
+    assert event["track_changes"] == 0
+    assert line["istable"] == 1
+    assert work_fields["warehouse"]["reqd"] == 1
+    assert work_fields["creation_idempotency_key"]["unique"] == 1
+    assert event_fields["idempotency_key"]["unique"] == 1
+
+    service = (ROOT / "solara_wms" / "wms" / "work.py").read_text()
+    tree = ast.parse(service)
+    forbidden = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in {"submit", "commit"}:
+                forbidden.append(f"{node.func.attr}:{node.lineno}")
+    assert forbidden == []
+    assert "FOR UPDATE" in service
+    assert "available_qty >= %s" in service
+    assert "_require_shadow_write(warehouse)" in service
 
 
 def test_item_location_is_warehouse_scoped():

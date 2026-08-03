@@ -7,8 +7,12 @@ import pytest
 from solara_wms.wms.inventory_domain import (
     BalanceState,
     InventoryInvariantError,
+    allocate_balance,
     apply_internal_move,
     canonical_qty,
+    complete_allocated_move,
+    plan_replenishment,
+    release_allocation,
     request_hash,
 )
 
@@ -53,3 +57,52 @@ def test_internal_move_cannot_consume_allocated_or_held_quantity():
 def test_balance_rejects_negative_available_quantity():
     with pytest.raises(InventoryInvariantError):
         BalanceState.from_values(5, allocated=4, held=2).validate()
+
+
+def test_allocate_and_release_preserve_physical_quantity():
+    opening = BalanceState.from_values(100, allocated=10, held=5)
+    allocated = allocate_balance(opening, 25)
+    released = release_allocation(allocated, 25)
+
+    assert allocated.physical == opening.physical
+    assert allocated.allocated == Decimal("35")
+    assert allocated.available == Decimal("60")
+    assert released == opening
+
+
+def test_two_allocations_cannot_exceed_available_quantity():
+    first = allocate_balance(BalanceState.from_values(75), 50)
+    with pytest.raises(InventoryInvariantError, match="25 available, 50 requested"):
+        allocate_balance(first, 50)
+
+
+def test_allocated_replenishment_conserves_quantity_and_consumes_allocation():
+    source = BalanceState.from_values(95, allocated=95)
+    target = BalanceState.from_values(15)
+    source_after, target_after = complete_allocated_move(source, target, 95)
+
+    assert source_after.physical == 0
+    assert source_after.allocated == 0
+    assert target_after.physical == 110
+    assert source_after.physical + target_after.physical == 110
+
+
+def test_replenishment_plan_respects_policy_capacity_and_available_quantity():
+    assert plan_replenishment(
+        BalanceState.from_values(95),
+        BalanceState.from_values(15),
+        minimum_qty=50,
+        maximum_qty=200,
+        replenish_qty=150,
+    ) == Decimal("95")
+
+
+def test_replenishment_is_not_created_at_or_above_minimum():
+    with pytest.raises(InventoryInvariantError, match="not below minimum"):
+        plan_replenishment(
+            BalanceState.from_values(100),
+            BalanceState.from_values(50),
+            minimum_qty=50,
+            maximum_qty=200,
+            replenish_qty=150,
+        )

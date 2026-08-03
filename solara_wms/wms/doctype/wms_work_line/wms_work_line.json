@@ -1,0 +1,28 @@
+{
+  "actions": [],
+  "creation": "2026-08-03 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 0,
+  "engine": "InnoDB",
+  "field_order": [
+    "state", "item_code", "source_bin", "target_bin", "requested_qty",
+    "allocated_qty", "executed_qty"
+  ],
+  "fields": [
+    {"fieldname": "state", "fieldtype": "Select", "label": "State", "options": "Allocated\nCompleted\nCancelled", "default": "Allocated", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item", "options": "Item", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "source_bin", "fieldtype": "Link", "label": "Source Bin", "options": "Warehouse Bin", "reqd": 1, "read_only": 1, "in_list_view": 1},
+    {"fieldname": "target_bin", "fieldtype": "Link", "label": "Target Bin", "options": "Warehouse Bin", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "requested_qty", "fieldtype": "Float", "label": "Requested Quantity", "reqd": 1, "read_only": 1},
+    {"fieldname": "allocated_qty", "fieldtype": "Float", "label": "Allocated Quantity", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "executed_qty", "fieldtype": "Float", "label": "Executed Quantity", "read_only": 1, "in_list_view": 1}
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 1,
+  "modified": "2026-08-03 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "WMS",
+  "name": "WMS Work Line",
+  "owner": "Administrator",
+  "track_changes": 0
+}

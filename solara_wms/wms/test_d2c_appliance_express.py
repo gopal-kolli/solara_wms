@@ -36,18 +36,25 @@ class TestApplianceExpressEligibility(TestCase):
         self.assertTrue(out["eligible"])
         self.assertEqual(out["kind"], "pre_kitted_combo")
 
-    def test_loose_addon_combo_stays_normal(self):
+    def test_single_carton_appliance_with_loose_addon_is_express(self):
         out = classify_lines([row("SOL-AF-501"), row("SOL-SPY-101")])
-        self.assertFalse(out["eligible"])
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "appliance_order")
 
-    def test_unknown_bundle_stays_normal(self):
+    def test_single_carton_appliance_with_unknown_bundle_is_express(self):
         out = classify_lines([row("SOL-AF-501", bundle="OTHER"),
                               row("SOL-SPY-101", bundle="OTHER")])
-        self.assertFalse(out["eligible"])
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "appliance_order")
 
     def test_multi_box_stays_normal(self):
-        out = classify_lines([row("SOL-AF-501")], box_count=2)
+        out = classify_lines([row("SOL-AF-501"), row("SOL-CI-DT-101")], box_count=2)
         self.assertFalse(out["eligible"])
+
+    def test_two_factory_cartons_of_one_appliance_are_express(self):
+        out = classify_lines([row("SOL-AF-124", qty=2)], box_count=2)
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "multi_box_appliance_order")
 
     def test_afo_slow_juicer_bundle_is_express_as_two_parcels(self):
         bundle = "SOL-AFO-501-JUC-121"

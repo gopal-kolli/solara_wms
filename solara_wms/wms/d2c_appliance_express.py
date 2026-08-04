@@ -2,10 +2,10 @@
 # For license information, please see license.txt
 """Appliance Express classification and carton-EAN verification.
 
-Express is deliberately explicit: bare approved appliance cartons, approved
-pre-kits, selected component-visible juicer bundles, and selected multi-box
-appliance bundles.  Every multi-box parcel still gets its own AWB, carton-EAN,
-condition and photo checks; unlisted loose accessories stay on normal lines.
+Every single-carton order containing one approved appliance carton belongs to
+Express, including orders with loose add-ons. Pure multi-carton appliance
+orders and approved appliance bundles also belong to Express. Every physical
+appliance parcel still gets its own AWB, carton-EAN, condition and photo checks.
 """
 import json
 
@@ -106,12 +106,13 @@ def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None,
     # This branch works both on the whole DN during wave classification (two
     # primary cartons) and on one parcel during scan (one primary carton).
     if box_count > 1:
+        accessory_lines = [row for row in lines if row not in primary]
+        primary_units = sum(flt(_value(row, "qty")) for row in primary)
         approved_multibox = bundles & multibox_bundles
         bundle = next(iter(approved_multibox)) if len(approved_multibox) == 1 else None
         valid_primary = (primary and len(primary) <= box_count
                          and all(abs(flt(_value(row, "qty")) - 1) <= 0.001
                                  for row in primary))
-        accessory_lines = [row for row in lines if row not in primary]
         valid_accessories = all(
             str(_value(row, "item_code") or "").upper() in multibox_accessories
             for row in accessory_lines)
@@ -122,6 +123,18 @@ def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None,
                 "bundle": bundle,
                 "carton_item": str(_value(primary[0], "item_code") or "").upper(),
                 "reason": "Approved multi-box appliance combo",
+            }
+        # A quantity of the same appliance may be split into separate factory
+        # cartons without a Product Bundle parent. Keep both the whole-DN wave
+        # decision and each one-parcel scan eligible, while rejecting a mixed
+        # multi-box order whose non-appliance parcel would need normal packing.
+        if primary and not bundles and not accessory_lines and primary_units <= box_count:
+            return {
+                "eligible": True,
+                "kind": "multi_box_appliance_order",
+                "bundle": None,
+                "carton_item": str(_value(primary[0], "item_code") or "").upper(),
+                "reason": "Approved multi-box appliance order",
             }
         return {"eligible": False,
                 "reason": "Multi-box order is not an approved Express appliance combo."}
@@ -139,14 +152,19 @@ def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None,
         kind = "appliance_combo"
         bundle = next(iter(bundles))
     else:
-        return {"eligible": False,
-                "reason": "Loose or non-approved combo contents use normal packing."}
+        # Management decision 04-Aug-2026: all single-carton appliance orders
+        # go to Express. The complete physical line list remains visible to the
+        # packer, so add-ons are checked rather than silently omitted.
+        kind = "appliance_order"
+        bundle = next(iter(bundles)) if len(bundles) == 1 else None
     return {
         "eligible": True,
         "kind": kind,
         "bundle": bundle,
         "carton_item": str(_value(primary[0], "item_code") or "").upper(),
-        "reason": ("Approved pre-kitted appliance combo"
+        "reason": ("Approved appliance order"
+                   if kind == "appliance_order" else
+                   "Approved pre-kitted appliance combo"
                    if kind == "pre_kitted_combo" else
                    "Approved appliance combo"
                    if kind == "appliance_combo" else
@@ -242,6 +260,8 @@ def appliance_express_get(code):
         combo_checks.append("Pre-kit / Combo Ready marking present")
     elif decision.get("kind") == "appliance_combo":
         combo_checks.append("All listed combo accessories present")
+    elif decision.get("kind") == "appliance_order":
+        combo_checks.append("All listed add-ons present")
     out.update({"express": decision, "carton_barcodes": barcodes,
                 "station": STATION,
                 "condition_checks": ["Correct factory carton", "Carton and seal undamaged"] +

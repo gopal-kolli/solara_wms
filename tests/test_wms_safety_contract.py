@@ -224,6 +224,19 @@ def test_location_master_has_immutable_qr_and_draft_only_import():
     ).read_text()
 
 
+def test_location_identity_backfill_syncs_schema_before_querying_new_fields():
+    patch = (
+        ROOT
+        / "solara_wms"
+        / "patches"
+        / "v1_0"
+        / "backfill_warehouse_location_identity.py"
+    ).read_text()
+    assert patch.index('frappe.reload_doc("wms", "doctype", "warehouse_bin")') < patch.index(
+        "frappe.get_all("
+    )
+
+
 def test_legacy_bin_generator_cannot_create_or_delete():
     source = (ROOT / "solara_wms" / "wms" / "generate_bins.py").read_text()
     assert "Legacy rack-based bin generation is disabled" in source

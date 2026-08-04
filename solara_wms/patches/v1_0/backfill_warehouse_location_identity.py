@@ -6,6 +6,9 @@ import frappe
 
 
 def execute():
+    # Patches run before the normal model-sync phase.  Load the updated DocType
+    # explicitly so the new identity columns exist before the backfill query.
+    frappe.reload_doc("wms", "doctype", "warehouse_bin")
     for row in frappe.get_all(
         "Warehouse Bin", fields=["name", "warehouse", "bin_code", "location_id"]
     ):

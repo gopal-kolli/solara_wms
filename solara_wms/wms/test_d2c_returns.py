@@ -3,6 +3,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from solara_wms.wms import d2c_returns as returns
+from solara_wms.wms.doctype.return_intake.return_intake import target_warehouse_for_condition
 
 
 class _Row:
@@ -33,7 +34,10 @@ class TestReturnQcGuardrails(TestCase):
             "accessories_complete": 1, "visual_pass": 1,
             "power_test": "Pass", "function_test": "Pass",
         }
-        with patch.object(returns.frappe, "throw", side_effect=ValueError):
+        with patch.object(
+                returns.frappe, "throw",
+                side_effect=lambda message, *args, **kwargs: (_ for _ in ()).throw(
+                    ValueError(message))):
             with self.assertRaisesRegex(ValueError, "serial"):
                 returns._validate_good(row, raw)
 
@@ -43,7 +47,10 @@ class TestReturnQcGuardrails(TestCase):
             "accessories_complete": 0, "visual_pass": 1,
             "power_test": "Pass", "function_test": "Pass",
         }
-        with patch.object(returns.frappe, "throw", side_effect=ValueError):
+        with patch.object(
+                returns.frappe, "throw",
+                side_effect=lambda message, *args, **kwargs: (_ for _ in ()).throw(
+                    ValueError(message))):
             with self.assertRaisesRegex(ValueError, "accessory"):
                 returns._validate_good(row, raw)
 
@@ -59,3 +66,15 @@ class TestReturnQcGuardrails(TestCase):
         self.assertEqual(returns._as_json(json.dumps([{"x": 1}]), []), [{"x": 1}])
         self.assertEqual(returns._as_json('{"x": 1}', []), [])
         self.assertEqual(returns._as_json('not-json', {}), {})
+
+    def test_three_way_disposition_uses_segregated_warehouses(self):
+        self.assertEqual(target_warehouse_for_condition("WTBBPL", "Good"),
+                         "Main Warehouse - WTBBPL")
+        self.assertEqual(target_warehouse_for_condition("WTBBPL", "Repairable"),
+                         "QC / Damaged - WTBBPL")
+        self.assertEqual(target_warehouse_for_condition("WTBBPL", "Scrap"),
+                         "QC / Rejected - WTBBPL")
+
+    def test_conditions_include_repairable_and_scrap(self):
+        self.assertIn("Repairable", returns.CONDITIONS)
+        self.assertIn("Scrap", returns.CONDITIONS)

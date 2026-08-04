@@ -8,9 +8,9 @@
   "status", "reverse_awb", "courier", "return_type", "station", "holding_bin",
   "section_order", "shopify_order_number", "customer_name", "delivery_note", "sales_invoice", "forward_awb", "lookup_code",
   "section_reason", "customer_reason", "warehouse_finding", "claim_required", "exception", "notes",
-  "section_items", "items",
+  "section_items", "items", "section_components", "components",
   "section_evidence", "label_photo_url", "open_photo_url", "qc_evidence_url", "evidence_urls",
-  "section_result", "return_intake", "received_at", "received_by", "completed_at"
+  "section_result", "return_intake", "inventory_status", "credit_note", "credit_note_status", "refund_status", "finance_status", "finance_notes", "closed_at", "received_at", "received_by", "completed_at"
  ],
  "fields": [
   {"fieldname":"status","fieldtype":"Select","label":"Status","options":"QC In Progress\nPending HQ Review\nException\nApproved\nRejected","default":"QC In Progress","reqd":1,"in_list_view":1},
@@ -39,6 +39,9 @@
 
   {"fieldname":"section_items","fieldtype":"Section Break","label":"Expected vs Received"},
   {"fieldname":"items","fieldtype":"Table","options":"D2C Return Parcel Item","label":"Items","reqd":1},
+  {"fieldname":"section_components","fieldtype":"Section Break","label":"Bundle Component Checklist"},
+  {"fieldname":"components","fieldtype":"Table","options":"D2C Return Parcel Component","label":"Expected Packed Components",
+   "description":"Every packed component must be physically counted before a complete bundle can be received automatically."},
 
   {"fieldname":"section_evidence","fieldtype":"Section Break","label":"QC Evidence"},
   {"fieldname":"label_photo_url","fieldtype":"Data","label":"Unopened Parcel / Label Photo","length":500},
@@ -48,6 +51,13 @@
 
   {"fieldname":"section_result","fieldtype":"Section Break","label":"Result"},
   {"fieldname":"return_intake","fieldtype":"Link","options":"Return Intake","label":"Return Intake","read_only":1,"in_list_view":1},
+  {"fieldname":"inventory_status","fieldtype":"Select","label":"Inventory Status","options":"Pending QC\nPending HQ Approval\nPosted\nRejected\nException","default":"Pending QC","read_only":1,"in_list_view":1},
+  {"fieldname":"credit_note","fieldtype":"Link","options":"Sales Invoice","label":"Credit Note","read_only":1},
+  {"fieldname":"credit_note_status","fieldtype":"Select","label":"Credit Note Status","options":"Not Required\nPending\nDraft\nSubmitted","default":"Pending","read_only":1},
+  {"fieldname":"refund_status","fieldtype":"Select","label":"Refund Status","options":"Not Required\nPending Verification\nRefunded\nReconciled","default":"Pending Verification","in_list_view":1},
+  {"fieldname":"finance_status","fieldtype":"Select","label":"Finance Status","options":"Pending Inventory\nPending Credit Note\nPending Refund\nClosed\nException","default":"Pending Inventory","in_list_view":1},
+  {"fieldname":"finance_notes","fieldtype":"Small Text","label":"Finance Notes"},
+  {"fieldname":"closed_at","fieldtype":"Datetime","label":"Closed At","read_only":1},
   {"fieldname":"received_at","fieldtype":"Datetime","label":"Received / QC Started At","read_only":1},
   {"fieldname":"received_by","fieldtype":"Data","label":"Received By","read_only":1},
   {"fieldname":"completed_at","fieldtype":"Datetime","label":"QC Submitted At","read_only":1}

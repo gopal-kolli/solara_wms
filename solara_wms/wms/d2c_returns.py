@@ -22,7 +22,10 @@ CUSTOMER_REASONS = {
     "Changed mind", "Customer reported defective", "Customer reported damaged",
     "Wrong / missing item reported", "Other",
 }
-CONDITIONS = {"Good", "Damaged", "Used", "Incomplete", "Wrong Item", "Missing / Empty"}
+CONDITIONS = {
+    "Good", "Repairable", "Scrap", "Damaged", "Used", "Incomplete",
+    "Wrong Item", "Missing / Empty",
+}
 FINDINGS = {
     "No fault found", "Transit damage", "Used / customer damage",
     "Missing accessories", "Wrong product", "Empty parcel", "Serial mismatch",
@@ -90,7 +93,12 @@ def _max_returnable(si):
 
 
 def _expected_items(dn, si):
-    """Return customer-facing order lines, excluding pure service/warranty lines."""
+    """Return order lines plus the physical packed-component checklist.
+
+    The accounting return must stay on the original Delivery Note parent line,
+    but warehouse QC must prove every component packed behind that line.  A
+    complete component checklist is therefore nested under each parent item.
+    """
     bundle_parents = {row.parent_item for row in (dn.get("packed_items") or [])
                       if row.get("parent_item")}
     maxima = _max_returnable(si)
@@ -114,7 +122,29 @@ def _expected_items(dn, si):
                 "serial_required": cint(meta.get("has_serial_no")),
             }
         grouped[row.item_code]["expected_qty"] += qty
-    return list(grouped.values())
+    packed = defaultdict(dict)
+    for row in (dn.get("packed_items") or []):
+        parent = row.get("parent_item")
+        code = row.get("item_code")
+        qty = abs(flt(row.get("qty")))
+        if not parent or not code or qty <= 0:
+            continue
+        meta = frappe.db.get_value(
+            "Item", code, ["item_name", "image"], as_dict=True) or {}
+        component = packed[parent].setdefault(code, {
+            "parent_item_code": parent,
+            "item_code": code,
+            "item_name": meta.get("item_name") or code,
+            "image": meta.get("image"),
+            "expected_qty": 0,
+        })
+        component["expected_qty"] += qty
+
+    output = []
+    for item in grouped.values():
+        item["components"] = list(packed.get(item["item_code"], {}).values())
+        output.append(item)
+    return output
 
 
 def _channel(si):
@@ -132,7 +162,7 @@ def _channel(si):
     return "Other"
 
 
-def _lookup(reverse_awb, order_code=None):
+def _lookup(reverse_awb, order_code=None, allow_additional=False):
     reverse_awb = (reverse_awb or "").strip()
     order_code = (order_code or "").strip()
     if not reverse_awb:
@@ -168,7 +198,7 @@ def _lookup(reverse_awb, order_code=None):
     if not items:
         return {"status": "error", "reverse_awb": reverse_awb,
                 "message": "No returnable physical items were found on this order."}
-    return {
+    result = {
         "status": "ok",
         "reverse_awb": reverse_awb,
         "lookup_code": lookup_code,
@@ -181,9 +211,42 @@ def _lookup(reverse_awb, order_code=None):
                    or dn.get("courier_partner"),
         "items": items,
     }
+    if not allow_additional:
+        open_parcels = frappe.get_all(
+            "D2C Return Parcel",
+            filters={
+                "delivery_note": dn.name,
+                "status": ["in", ["QC In Progress", "Pending HQ Review"]],
+            },
+            fields=["name", "reverse_awb", "status", "return_intake", "received_at"],
+            order_by="creation desc",
+            limit_page_length=20,
+        )
+        if open_parcels:
+            result.update({
+                "status": "possible_duplicate",
+                "existing_parcels": open_parcels,
+                "message": (
+                    "Another open return parcel already exists for this order. "
+                    "Resume it, or explicitly confirm this is a separate physical parcel."
+                ),
+            })
+    return result
 
 
 def _parcel_payload(doc):
+    components = defaultdict(list)
+    for row in (doc.get("components") or []):
+        components[row.parent_item_code].append({
+            "parent_item_code": row.parent_item_code,
+            "item_code": row.item_code,
+            "item_name": row.item_name,
+            "image": row.image,
+            "expected_qty": flt(row.expected_qty),
+            "received_qty": flt(row.received_qty),
+            "present": cint(row.present),
+            "notes": row.notes,
+        })
     return {
         "parcel": doc.name,
         "parcel_status": doc.status,
@@ -219,6 +282,7 @@ def _parcel_payload(doc):
             "power_test": row.power_test,
             "function_test": row.function_test,
             "notes": row.notes,
+            "components": components.get(row.item_code, []),
         } for row in doc.items],
     }
 
@@ -231,15 +295,25 @@ def return_lookup(reverse_awb, order_code=None):
 
 @frappe.whitelist()
 def return_start(reverse_awb, order_code=None, return_type="Unknown", station=None,
-                 holding_bin=None):
+                 holding_bin=None, additional_parcel=0):
     """Claim a physical reverse parcel for QC; idempotent by reverse AWB."""
-    out = _lookup(reverse_awb, order_code)
+    out = _lookup(reverse_awb, order_code, allow_additional=cint(additional_parcel))
     if out.get("status") in ("resume", "already"):
         return out
     if out.get("status") != "ok":
         return out
     if return_type not in ("Customer Return", "RTO", "Unknown"):
         return {"status": "error", "message": "Invalid return type."}
+
+    item_rows = []
+    component_rows = []
+    for expected in out["items"]:
+        row = dict(expected)
+        nested = row.pop("components", [])
+        row["received_qty"] = row["expected_qty"]
+        item_rows.append(row)
+        component_rows.extend({**component, "received_qty": 0, "present": 0}
+                              for component in nested)
 
     doc = frappe.get_doc({
         "doctype": "D2C Return Parcel",
@@ -257,8 +331,12 @@ def return_start(reverse_awb, order_code=None, return_type="Unknown", station=No
         "lookup_code": out.get("lookup_code"),
         "received_at": now_datetime(),
         "received_by": frappe.session.user,
-        "items": [{**item, "received_qty": item["expected_qty"]}
-                  for item in out["items"]],
+        "inventory_status": "Pending QC",
+        "finance_status": "Pending Inventory",
+        "credit_note_status": "Pending",
+        "refund_status": "Pending Verification",
+        "items": item_rows,
+        "components": component_rows,
     })
     doc.flags.ignore_permissions = True
     doc.insert(ignore_permissions=True)
@@ -287,7 +365,7 @@ def _validate_good(row, raw):
 
 
 @frappe.whitelist()
-def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
+def return_finalize(parcel, item_results=None, component_results=None, evidence=None, return_type=None,
                     customer_reason=None, warehouse_finding=None, notes=None,
                     claim_required=0):
     """Freeze QC evidence and create a Pending-HQ-Review Return Intake.
@@ -305,6 +383,12 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
 
     results = _as_json(item_results, [])
     result_map = {row.get("item_code"): row for row in results if row.get("item_code")}
+    component_results = _as_json(component_results, [])
+    component_map = {
+        (row.get("parent_item_code"), row.get("item_code")): row
+        for row in component_results
+        if row.get("parent_item_code") and row.get("item_code")
+    }
     evidence = _as_json(evidence, {})
     required_evidence = {
         "label_photo_url": "unopened parcel / label photo",
@@ -321,6 +405,24 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
         frappe.throw("Choose a valid warehouse finding.")
     if return_type and return_type not in ("Customer Return", "RTO", "Unknown"):
         frappe.throw("Choose a valid return type.")
+
+    component_complete = defaultdict(lambda: True)
+    for component in (doc.get("components") or []):
+        key = (component.parent_item_code, component.item_code)
+        raw_component = component_map.get(key)
+        if not raw_component:
+            frappe.throw("Count packed component {0} for bundle {1}."
+                         .format(component.item_code, component.parent_item_code))
+        received = flt(raw_component.get("received_qty"))
+        if received < 0 or received > flt(component.expected_qty) + 0.001:
+            frappe.throw("{0}: component quantity must be between 0 and {1}."
+                         .format(component.item_code, component.expected_qty))
+        present = cint(raw_component.get("present"))
+        component.received_qty = received
+        component.present = present
+        component.notes = (raw_component.get("notes") or "").strip()
+        if not present or abs(received - flt(component.expected_qty)) > 0.001:
+            component_complete[component.parent_item_code] = False
 
     intake_rows = []
     has_exception = False
@@ -348,10 +450,38 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
         row.warehouse_finding = raw.get("warehouse_finding") or warehouse_finding
         row.notes = (raw.get("notes") or "").strip()
 
+        finding = row.warehouse_finding
+        if condition == "Good" and finding not in ("No fault found", "Packaging damage only"):
+            frappe.throw("{0}: a Good item cannot have finding '{1}'."
+                         .format(row.item_code, finding or "blank"))
+        if condition in ("Repairable", "Scrap", "Damaged", "Used") and finding == "No fault found":
+            frappe.throw("{0}: choose the actual defect before marking it {1}."
+                         .format(row.item_code, condition))
+
+        bundle_complete = component_complete[row.item_code]
+        if not bundle_complete:
+            row.disposition = "Investigation / No Receipt"
+            row.condition = "Incomplete"
+            has_exception = True
+            if row.warehouse_finding in (None, "", "No fault found"):
+                row.warehouse_finding = "Missing accessories"
+            findings.append(row.warehouse_finding)
+            continue
+
         if condition == "Good":
             _validate_good(row, raw)
             row.disposition = "Main Warehouse"
-        elif condition in ("Damaged", "Used", "Incomplete"):
+        elif condition == "Repairable":
+            if received <= 0:
+                frappe.throw("{0}: a repairable item must be physically received."
+                             .format(row.item_code))
+            row.disposition = "Repair / Refurbishment"
+        elif condition == "Scrap":
+            if received <= 0:
+                frappe.throw("{0}: a scrap item must be physically received."
+                             .format(row.item_code))
+            row.disposition = "Scrap Hold"
+        elif condition in ("Damaged", "Used"):
             if received <= 0:
                 frappe.throw("{0}: received quantity is required for a physical {1} item."
                              .format(row.item_code, condition.lower()))
@@ -374,8 +504,7 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
             intake_rows.append({
                 "item_code": row.item_code,
                 "return_qty": received,
-                "condition": ("Good" if condition == "Good"
-                              else ("Used" if condition == "Used" else "Damaged")),
+                "condition": condition,
             })
 
     doc.return_type = return_type or doc.return_type
@@ -392,6 +521,8 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
 
     if not intake_rows:
         doc.status = "Exception"
+        doc.inventory_status = "Exception"
+        doc.finance_status = "Exception"
         doc.flags.ignore_permissions = True
         doc.save(ignore_permissions=True)
         return {"status": "exception", "parcel": doc.name,
@@ -429,6 +560,8 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
 
     doc.return_intake = intake.name
     doc.status = "Pending HQ Review"
+    doc.inventory_status = "Pending HQ Approval"
+    doc.finance_status = "Pending Inventory"
     doc.flags.ignore_permissions = True
     doc.save(ignore_permissions=True)
     return {
@@ -437,4 +570,140 @@ def return_finalize(parcel, item_results=None, evidence=None, return_type=None,
         "return_intake": intake.name,
         "exception": cint(has_exception),
         "message": "QC saved. Inventory remains unchanged until HQ approves the Return Intake.",
+    }
+
+
+def _linked_credit_note(sales_invoice):
+    rows = frappe.get_all(
+        "Sales Invoice",
+        filters={"is_return": 1, "return_against": sales_invoice,
+                 "docstatus": ["in", [0, 1]]},
+        fields=["name", "docstatus", "status", "grand_total", "posting_date"],
+        order_by="docstatus desc, creation desc",
+        limit_page_length=1,
+    )
+    return rows[0] if rows else None
+
+
+def _refresh_finance_status(doc):
+    """Derive the accounting close stage without ever creating or submitting it."""
+    update = {}
+    cn = _linked_credit_note(doc.sales_invoice) if doc.sales_invoice else None
+    if cn:
+        update["credit_note"] = cn.name
+        update["credit_note_status"] = "Submitted" if cn.docstatus == 1 else "Draft"
+    else:
+        update["credit_note"] = None
+        update["credit_note_status"] = "Pending"
+
+    if doc.inventory_status != "Posted":
+        finance_status = "Exception" if doc.inventory_status in ("Exception", "Rejected") else "Pending Inventory"
+    elif not cn or cn.docstatus != 1:
+        finance_status = "Pending Credit Note"
+    elif doc.refund_status in ("Not Required", "Reconciled"):
+        finance_status = "Closed"
+    else:
+        finance_status = "Pending Refund"
+    update["finance_status"] = finance_status
+    update["closed_at"] = now_datetime() if finance_status == "Closed" else None
+
+    current = {key: doc.get(key) for key in update}
+    if any(current[key] != value for key, value in update.items()):
+        frappe.db.set_value("D2C Return Parcel", doc.name, update)
+        for key, value in update.items():
+            doc.set(key, value)
+    return cn
+
+
+@frappe.whitelist()
+def return_finance_queue(finance_status=None, limit=250):
+    """Read-only Finance/HQ queue spanning inventory, CN and refund completion."""
+    limit = min(max(cint(limit) or 250, 1), 1000)
+    filters = {}
+    if finance_status:
+        filters["finance_status"] = finance_status
+    rows = frappe.get_all(
+        "D2C Return Parcel",
+        filters=filters,
+        fields=[
+            "name", "status", "reverse_awb", "shopify_order_number", "return_type",
+            "sales_invoice", "delivery_note", "return_intake", "inventory_status",
+            "credit_note", "credit_note_status", "refund_status", "finance_status",
+            "customer_reason", "warehouse_finding", "claim_required", "exception",
+            "received_at", "completed_at", "closed_at",
+        ],
+        order_by="creation desc",
+        limit_page_length=limit,
+    )
+    output = []
+    for row in rows:
+        doc = frappe.get_doc("D2C Return Parcel", row.name)
+        cn = _refresh_finance_status(doc)
+        payload = _parcel_payload(doc)
+        payload.update({
+            "inventory_status": doc.inventory_status,
+            "credit_note": doc.credit_note,
+            "credit_note_status": doc.credit_note_status,
+            "refund_status": doc.refund_status,
+            "finance_status": doc.finance_status,
+            "finance_notes": doc.finance_notes,
+            "closed_at": doc.closed_at,
+            "credit_note_amount": (cn.grand_total if cn else None),
+        })
+        output.append(payload)
+    return {"rows": output, "count": len(output)}
+
+
+@frappe.whitelist()
+def return_mark_refund(parcel, refund_status, finance_notes=None):
+    """Record Finance's refund verification; CN submission remains a separate review."""
+    allowed_roles = {"System Manager", "Accounts Manager", "HQ Returns Reviewer"}
+    if not allowed_roles.intersection(set(frappe.get_roles())):
+        frappe.throw("Only Finance or an HQ Returns Reviewer can update refund status.",
+                     frappe.PermissionError)
+    if refund_status not in ("Not Required", "Pending Verification", "Refunded", "Reconciled"):
+        frappe.throw("Choose a valid refund status.")
+    doc = frappe.get_doc("D2C Return Parcel", parcel)
+    doc.refund_status = refund_status
+    if finance_notes is not None:
+        doc.finance_notes = (finance_notes or "").strip()
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    _refresh_finance_status(doc)
+    return {
+        "status": "ok", "parcel": doc.name, "refund_status": doc.refund_status,
+        "finance_status": doc.finance_status,
+    }
+
+
+@frappe.whitelist()
+def return_exception_summary():
+    """Daily control snapshot, including open duplicate-order warnings."""
+    rows = frappe.get_all(
+        "D2C Return Parcel",
+        fields=["name", "status", "shopify_order_number", "reverse_awb", "return_intake",
+                "inventory_status", "finance_status", "exception", "claim_required",
+                "received_at", "completed_at"],
+        order_by="creation desc",
+        limit_page_length=1000,
+    )
+    by_order = defaultdict(list)
+    counts = defaultdict(int)
+    for row in rows:
+        counts[row.status] += 1
+        if row.shopify_order_number and row.status in ("QC In Progress", "Pending HQ Review"):
+            by_order[row.shopify_order_number].append(row)
+    duplicates = [
+        {"order": order, "parcels": group}
+        for order, group in sorted(by_order.items()) if len(group) > 1
+    ]
+    return {
+        "total_parcels": len(rows),
+        "unique_orders": len({row.shopify_order_number for row in rows if row.shopify_order_number}),
+        "status_counts": dict(counts),
+        "duplicate_open_orders": duplicates,
+        "qc_in_progress": [row for row in rows if row.status == "QC In Progress"],
+        "pending_hq_review": [row for row in rows if row.status == "Pending HQ Review"],
+        "claims": [row for row in rows if cint(row.claim_required)],
+        "exceptions": [row for row in rows if cint(row.exception) or row.finance_status == "Exception"],
     }

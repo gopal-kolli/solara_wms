@@ -55,10 +55,10 @@
       "fieldname": "condition",
       "fieldtype": "Select",
       "label": "Condition",
-      "options": "Good\nDamaged\nUsed",
+      "options": "Good\nRepairable\nScrap\nDamaged\nUsed",
       "in_list_view": 1,
       "reqd": 1,
-      "description": "Good → Main Warehouse (resellable). Damaged/Used → QC / Rejected."
+      "description": "Good → Main. Repairable → QC / Damaged. Scrap → QC / Rejected hold. Legacy Damaged/Used → QC / Rejected."
     },
     {
       "fieldname": "section_break_validation",

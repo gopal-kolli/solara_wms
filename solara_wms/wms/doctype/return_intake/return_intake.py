@@ -5,6 +5,15 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 
+def target_warehouse_for_condition(company_abbr, condition):
+    """Return the controlled inventory destination for an HQ-approved line."""
+    if condition == "Good":
+        return f"Main Warehouse - {company_abbr}"
+    if condition == "Repairable":
+        return f"QC / Damaged - {company_abbr}"
+    return f"QC / Rejected - {company_abbr}"
+
+
 class ReturnIntake(Document):
     """
     Return Intake — warehouse returns desk form.
@@ -17,8 +26,9 @@ class ReturnIntake(Document):
     (no Credit Note); revenue reversal stays with the existing settlement /
     connector flows.
 
-    Good lines restock to Main Warehouse; Damaged/Used lines go to QC / Rejected
-    (write-off stays in the monthly QC review, not here).
+    Good lines restock to Main Warehouse. Repairable lines go to QC / Damaged;
+    Scrap lines go to QC / Rejected as a controlled hold pending the approved
+    write-off process. Legacy Damaged/Used lines continue to QC / Rejected.
 
     Workflow: Draft -> Pending HQ Review -> Approved (auto-submits the Return DN)
     / Rejected.
@@ -181,13 +191,16 @@ class ReturnIntake(Document):
 
         abbr = frappe.get_cached_value("Company", self.company, "abbr")
         main_wh = f"Main Warehouse - {abbr}"
+        repair_wh = f"QC / Damaged - {abbr}"
         qc_wh = f"QC / Rejected - {abbr}"
         # Require only the warehouse(s) the actual line conditions need.
         conditions = {row.condition for row in self.items}
         needed = set()
         if "Good" in conditions:
             needed.add(main_wh)
-        if conditions & {"Damaged", "Used"}:
+        if "Repairable" in conditions:
+            needed.add(repair_wh)
+        if conditions & {"Scrap", "Damaged", "Used"}:
             needed.add(qc_wh)
         for wh in needed:
             if not frappe.db.exists("Warehouse", wh):
@@ -219,7 +232,7 @@ class ReturnIntake(Document):
             row.against_sales_order = sref["against_sales_order"]
             row.so_detail = sref["so_detail"]
             row.against_sales_invoice = sref["against_sales_invoice"]
-            row.target_warehouse = main_wh if row.condition == "Good" else qc_wh
+            row.target_warehouse = target_warehouse_for_condition(abbr, row.condition)
 
             if requested[row.item_code] > max_returnable + 0.001:
                 frappe.throw(_(
@@ -241,7 +254,11 @@ class ReturnIntake(Document):
         # Submit fires for both Approved and Rejected (both docstatus 1).
         if self.workflow_state == "Rejected":
             if self.get("return_parcel") and frappe.db.exists("D2C Return Parcel", self.return_parcel):
-                frappe.db.set_value("D2C Return Parcel", self.return_parcel, "status", "Rejected")
+                frappe.db.set_value("D2C Return Parcel", self.return_parcel, {
+                    "status": "Rejected",
+                    "inventory_status": "Rejected",
+                    "finance_status": "Exception",
+                })
             return
         if self.return_dn_submitted:
             return
@@ -263,10 +280,38 @@ class ReturnIntake(Document):
         self.db_set("return_dn_submitted", 1)
         self.db_set("error_log", "")
         if self.get("return_parcel") and frappe.db.exists("D2C Return Parcel", self.return_parcel):
-            frappe.db.set_value("D2C Return Parcel", self.return_parcel, {
+            parcel_update = {
                 "status": "Approved",
                 "return_intake": self.name,
-            })
+                "inventory_status": "Posted",
+                "finance_status": "Pending Credit Note",
+            }
+            # If a linked Credit Note already exists, expose it immediately to
+            # Finance without coupling inventory approval to refund processing.
+            credit_notes = frappe.get_all(
+                "Sales Invoice",
+                filters={"is_return": 1, "return_against": self.sales_invoice,
+                         "docstatus": ["in", [0, 1]]},
+                fields=["name", "docstatus"],
+                order_by="docstatus desc, creation desc",
+                limit_page_length=1,
+            )
+            if credit_notes:
+                cn = credit_notes[0]
+                parcel_update["credit_note"] = cn.name
+                parcel_update["credit_note_status"] = (
+                    "Submitted" if cn.docstatus == 1 else "Draft"
+                )
+                parcel_update["finance_status"] = (
+                    "Pending Refund" if cn.docstatus == 1 else "Pending Credit Note"
+                )
+            else:
+                parcel_update["credit_note_status"] = "Pending"
+            si = frappe.get_doc("Sales Invoice", self.sales_invoice)
+            amount_received = max(0, flt(si.grand_total) - flt(si.outstanding_amount))
+            if amount_received <= 1:
+                parcel_update["refund_status"] = "Not Required"
+            frappe.db.set_value("D2C Return Parcel", self.return_parcel, parcel_update)
 
         links = ", ".join(
             f'<a href="/app/{"stock-entry" if self.update_stock_si else "delivery-note"}/{n}">{n}</a>'
@@ -375,4 +420,8 @@ class ReturnIntake(Document):
                 doc.cancel()
         self.db_set("return_dn_submitted", 0)
         if self.get("return_parcel") and frappe.db.exists("D2C Return Parcel", self.return_parcel):
-            frappe.db.set_value("D2C Return Parcel", self.return_parcel, "status", "Pending HQ Review")
+            frappe.db.set_value("D2C Return Parcel", self.return_parcel, {
+                "status": "Pending HQ Review",
+                "inventory_status": "Pending HQ Approval",
+                "finance_status": "Pending Inventory",
+            })

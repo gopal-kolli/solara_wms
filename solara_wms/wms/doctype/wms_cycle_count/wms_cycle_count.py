@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from solara_wms.wms import inventory_accuracy
+from solara_wms.wms.safety import require_wms_mode
 
 
 class WMSCycleCount(Document):
@@ -74,6 +75,7 @@ class WMSCycleCount(Document):
 
     @frappe.whitelist()
     def complete_count(self):
+        require_wms_mode("Shadow", "Draft Handoff")
         return inventory_accuracy.finalize_blind_count(self.name)
 
     @frappe.whitelist()

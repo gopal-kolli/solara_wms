@@ -190,6 +190,48 @@ def test_bin_codes_are_unique_within_not_across_warehouses():
     assert '"bin_code": self.bin_code' in controller
 
 
+def test_location_master_has_immutable_qr_and_draft_only_import():
+    schema = json.loads((LEGACY / "warehouse_bin/warehouse_bin.json").read_text())
+    fields = {field["fieldname"]: field for field in schema["fields"]}
+    assert fields["location_id"]["unique"] == 1
+    assert fields["qr_payload"]["read_only"] == 1
+    assert fields["commissioning_status"]["read_only"] == 1
+    assert "FW" in fields["hall_code"]["options"]
+    assert "L-10X12" in fields["bay_module"]["options"]
+    controller = (LEGACY / "warehouse_bin/warehouse_bin.py").read_text()
+    assert "Location ID is immutable" in controller
+
+    service = (ROOT / "solara_wms" / "wms" / "location_master.py").read_text()
+    tree = ast.parse(service)
+    forbidden = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in {"submit", "commit"}:
+                forbidden.append(f"{node.func.attr}:{node.lineno}")
+    assert forbidden == []
+    assert '"commissioning_status": "Draft"' in service
+    assert '"status": "Blocked"' in service
+    assert '"is_active": 0' in service
+    assert "Confirmation hash" in service
+    assert "Location ID already exists with different master data" in service
+    assert "def commission_location(" in service
+    assert '"Draft": "Marked"' in service
+    assert "signed baseline count reference" in service
+    assert "def retire_location(" in service
+    assert "controlled_location_transition" in controller
+    assert "resolve_location_scan" in (
+        ROOT / "solara_wms" / "wms" / "work.py"
+    ).read_text()
+
+
+def test_legacy_bin_generator_cannot_create_or_delete():
+    source = (ROOT / "solara_wms" / "wms" / "generate_bins.py").read_text()
+    assert "Legacy rack-based bin generation is disabled" in source
+    assert "Bulk Warehouse Bin deletion is permanently disabled" in source
+    assert "frappe.db.delete" not in source
+    assert "frappe.db.commit" not in source
+
+
 def test_floor_completion_methods_are_execution_gated():
     for relative, method_name in COMPLETION_METHODS.items():
         tree = ast.parse((LEGACY / relative).read_text())

@@ -6,8 +6,20 @@
   "editable_grid": 1,
   "engine": "InnoDB",
   "field_order": [
-    "warehouse",
+    "identity_section",
+    "location_id",
     "bin_code",
+    "qr_payload",
+    "column_break_identity",
+    "warehouse",
+    "hall_code",
+    "zone_code",
+    "bay_module",
+    "commissioning_status",
+    "marking_evidence",
+    "field_verified_by",
+    "field_verified_at",
+    "baseline_reference",
     "column_break_header",
     "zone_type",
     "status",
@@ -25,6 +37,7 @@
     "bin_height",
     "column_break_capacity2",
     "bin_volume",
+    "floor_area_sq_ft",
     "max_weight",
     "section_break_notes",
     "barcode",
@@ -32,6 +45,32 @@
     "notes"
   ],
   "fields": [
+    {
+      "fieldname": "identity_section",
+      "fieldtype": "Section Break",
+      "label": "Immutable Location Identity"
+    },
+    {
+      "fieldname": "location_id",
+      "fieldtype": "Data",
+      "label": "Location ID",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "search_index": 1,
+      "unique": 1,
+      "description": "Immutable QR identity, e.g. HYD-L0001. Never reuse."
+    },
+    {
+      "fieldname": "qr_payload",
+      "fieldtype": "Data",
+      "label": "QR Payload",
+      "read_only": 1,
+      "description": "Canonical scanner payload: SOLARA:LOC:<Location ID>"
+    },
+    {
+      "fieldname": "column_break_identity",
+      "fieldtype": "Column Break"
+    },
     {
       "fieldname": "warehouse",
       "fieldtype": "Link",
@@ -45,11 +84,71 @@
     {
       "fieldname": "bin_code",
       "fieldtype": "Data",
-      "label": "Bin Code",
+      "label": "Display Code",
       "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1,
-      "description": "Structured location code e.g. A-01-03-2 (Aisle-Rack-Shelf-Level)"
+      "description": "Editable human-facing code, e.g. HYD-FW-CW-A01"
+    },
+    {
+      "fieldname": "hall_code",
+      "fieldtype": "Select",
+      "label": "Hall",
+      "options": "\nFW\nBW",
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "zone_code",
+      "fieldtype": "Data",
+      "label": "Zone Code",
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "bay_module",
+      "fieldtype": "Select",
+      "label": "Bay Module",
+      "options": "\nS-5X6\nM-5X12\nM-10X6\nL-10X12\nDYNAMIC\nCUSTOM",
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "commissioning_status",
+      "fieldtype": "Select",
+      "label": "Commissioning Status",
+      "options": "Draft\nMarked\nVerified\nActive\nRetired",
+      "default": "Draft",
+      "read_only": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "description": "Draft locations are not scannable. Activate only after field marking and baseline control."
+    },
+    {
+      "fieldname": "marking_evidence",
+      "fieldtype": "Data",
+      "label": "Marking Evidence",
+      "read_only": 1,
+      "description": "Photo, checklist or field-sheet reference captured when the bay is physically marked."
+    },
+    {
+      "fieldname": "field_verified_by",
+      "fieldtype": "Link",
+      "label": "Field Verified By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "field_verified_at",
+      "fieldtype": "Datetime",
+      "label": "Field Verified At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "baseline_reference",
+      "fieldtype": "Data",
+      "label": "Signed Baseline Reference",
+      "read_only": 1,
+      "description": "Signed count batch/cutoff reference required before activation; this field does not adjust Atlas stock."
     },
     {
       "fieldname": "column_break_header",
@@ -160,6 +259,12 @@
       "label": "Volume (cm\u00b3)",
       "read_only": 1,
       "description": "Auto-calculated: length x width x height (ModernWMS: location_volume)"
+    },
+    {
+      "fieldname": "floor_area_sq_ft",
+      "fieldtype": "Float",
+      "label": "Floor Area (sq ft)",
+      "read_only": 1
     },
     {
       "fieldname": "max_weight",

@@ -32,6 +32,7 @@ from solara_wms.wms.inventory_domain import (
     release_allocation,
     request_hash,
 )
+from solara_wms.wms.location_master import resolve_location_scan
 
 
 WORK_DOCTYPE = "WMS Work"
@@ -793,6 +794,7 @@ def scan_pick(
     """Execute one idempotent scanner pick without touching ERP stock."""
     _require_shadow_write(warehouse)
     key = _idempotency_key(idempotency_key)
+    scanned_bin = resolve_location_scan(warehouse, scanned_bin).name
     _validate_bin(warehouse, scanned_bin)
     scan_qty = _decimal(qty)
     if scan_qty <= 0:
@@ -967,6 +969,7 @@ def close_pick_shortage(
     """Release an open pick remainder and retain mandatory shortage evidence."""
     _require_shadow_write(warehouse)
     key = _idempotency_key(idempotency_key)
+    scanned_bin = resolve_location_scan(warehouse, scanned_bin).name
     _validate_bin(warehouse, scanned_bin)
     code = (exception_code or "").strip()
     if code not in PICK_SHORTAGE_CODES:

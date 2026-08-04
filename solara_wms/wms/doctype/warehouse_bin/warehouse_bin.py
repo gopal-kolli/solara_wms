@@ -1,9 +1,12 @@
 import hashlib
+import re
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
+
+from solara_wms.wms.location_domain import LocationMasterError, qr_payload
 
 
 class WarehouseBin(Document):
@@ -34,13 +37,96 @@ class WarehouseBin(Document):
         key = "\x1f".join((self.warehouse or "", self.bin_code or ""))
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16].upper()
         self.name = "WMS-BIN-" + digest
+        if not self.location_id:
+            self.location_id = "LEGACY-L" + digest[:8]
 
     def validate(self):
+        self.validate_location_identity()
+        self.validate_commissioning_state()
         self.calculate_volume()
         self.validate_warehouse()
         self.generate_bin_code_if_empty()
         self.validate_unique_bin_code()
         self.validate_route_sequence()
+
+    def validate_commissioning_state(self):
+        """Fail closed when the operational flags disagree with commissioning."""
+        old_status = (
+            frappe.db.get_value("Warehouse Bin", self.name, "commissioning_status")
+            if self.name and not self.is_new()
+            else None
+        )
+        if (
+            old_status
+            and old_status != self.commissioning_status
+            and not self.flags.get("controlled_location_transition")
+            and not self.location_id.startswith("LEGACY-")
+        ):
+            frappe.throw(_("Use the controlled location commissioning workflow to change status"))
+        if self.commissioning_status == "Active":
+            if not self.marking_evidence or not self.field_verified_by or not self.baseline_reference:
+                frappe.throw(_("Active locations require marking, field verification and a signed baseline reference"))
+            self.is_active = 1
+            if self.status in ("Blocked", "Maintenance"):
+                self.status = "Active"
+        elif not self.location_id.startswith("LEGACY-"):
+            self.is_active = 0
+            self.status = "Blocked"
+
+    def on_trash(self):
+        references = (
+            ("WMS Bin Balance", {"bin": self.name}),
+            ("WMS Item Location", {"bin": self.name}),
+            ("WMS Movement", {"source_bin": self.name}),
+            ("WMS Movement", {"target_bin": self.name}),
+            ("WMS Work Line", {"source_bin": self.name}),
+        )
+        for doctype, filters in references:
+            if frappe.db.exists(doctype, filters):
+                frappe.throw(
+                    _("Location {0} has WMS history and cannot be deleted; retire it instead").format(
+                        self.location_id
+                    )
+                )
+
+    def validate_location_identity(self):
+        self.location_id = (self.location_id or "").strip().upper()
+        if not self.location_id:
+            digest = hashlib.sha1(
+                (self.name or self.bin_code or "").encode("utf-8")
+            ).hexdigest()[:8].upper()
+            self.location_id = "LEGACY-L" + digest
+        if not re.fullmatch(
+            r"(?:[A-Z0-9]{2,8}-L[0-9]{4,8}|LEGACY-L[A-F0-9]{8})",
+            self.location_id,
+        ):
+            frappe.throw(_("Location ID must match HYD-L0001 style"))
+        old = (
+            frappe.db.get_value("Warehouse Bin", self.name, "location_id")
+            if self.name
+            else None
+        )
+        if old and old != self.location_id:
+            frappe.throw(_("Location ID is immutable and cannot be changed"))
+        duplicate = frappe.db.exists(
+            "Warehouse Bin",
+            {"location_id": self.location_id, "name": ["!=", self.name or ""]},
+        )
+        if duplicate:
+            frappe.throw(_("Location ID {0} already exists").format(self.location_id))
+        try:
+            self.qr_payload = (
+                qr_payload(self.location_id)
+                if not self.location_id.startswith("LEGACY-")
+                else "SOLARA:LOC:" + self.location_id
+            )
+        except LocationMasterError as exc:
+            frappe.throw(_(str(exc)))
+        self.barcode = self.qr_payload
+        if self.bin_length and self.bin_width:
+            self.floor_area_sq_ft = (
+                flt(self.bin_length) * flt(self.bin_width) / (30.48 * 30.48)
+            )
 
     def calculate_volume(self):
         """Auto-calculate volume from dimensions (ModernWMS: location_volume)"""

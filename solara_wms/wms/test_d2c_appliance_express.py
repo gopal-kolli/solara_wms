@@ -64,6 +64,43 @@ class TestApplianceExpressEligibility(TestCase):
         self.assertTrue(scanned_box["eligible"])
         self.assertEqual(scanned_box["carton_item"], "SOL-JUC-121")
 
+    def test_af124_slow_juicer_bundle_is_express_as_two_parcels(self):
+        bundle = "SOL-AF-124-JUC-121"
+        out = classify_lines([
+            row("SOL-AF-124", bundle=bundle),
+            row("SOL-JUC-121", bundle=bundle),
+        ], box_count=2)
+
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "multi_box_appliance_combo")
+
+    def test_multibox_combo_with_approved_accessories_is_express(self):
+        bundle = "SOL-AFO-501-JUC-121"
+        accessory_bundle = "SOL-AF-SIL-BASKET-P6-SPY-101-AF-PP-101"
+        out = classify_lines([
+            row("SOL-AF-501", bundle=bundle),
+            row("SOL-JUC-121", bundle=bundle),
+            row("SOL-AF-SIL-BASKET-P6", bundle=accessory_bundle),
+            row("SOL-SPY-101", bundle=accessory_bundle),
+            row("SOL-AF-PP-101", bundle=accessory_bundle),
+            row("SOL-AF-501-CVR-BAG"),
+            row("SOL-JUC-BAG-121"),
+            row("SOL-WB-105"),
+        ], box_count=2)
+
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["bundle"], bundle)
+
+    def test_multibox_combo_with_unapproved_loose_item_stays_normal(self):
+        bundle = "SOL-AFO-501-JUC-121"
+        out = classify_lines([
+            row("SOL-AF-501", bundle=bundle),
+            row("SOL-JUC-121", bundle=bundle),
+            row("SOL-CI-DT-101"),
+        ], box_count=2)
+
+        self.assertFalse(out["eligible"])
+
     def test_unapproved_multibox_bundle_stays_normal(self):
         out = classify_lines([
             row("SOL-AF-501", bundle="OTHER"),
@@ -80,6 +117,18 @@ class TestApplianceExpressEligibility(TestCase):
 
         self.assertTrue(out["eligible"])
         self.assertEqual(out["kind"], "appliance_combo")
+
+    def test_signature_combo_with_cover_is_pre_kitted_express(self):
+        bundle = "SOL-AF-501-SIL-BASKET-P6-SPY-101-CVR-BAG"
+        out = classify_lines([
+            row("SOL-AF-501", bundle=bundle),
+            row("SOL-SPY-101", bundle=bundle),
+            row("SOL-AF-SIL-BASKET-P6", bundle=bundle),
+            row("SOL-AF-501-CVR-BAG", bundle=bundle),
+        ])
+
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["kind"], "pre_kitted_combo")
 
     def test_two_appliances_stay_normal(self):
         out = classify_lines([row("SOL-AF-501", qty=2)])

@@ -144,6 +144,56 @@ class TestD2CPrepareBatch(TestCase):
 
         self.assertEqual(fulfillment._pick_list_lines(dn), lines)
 
+    @patch.object(fulfillment, "_save_output_file")
+    @patch.object(fulfillment, "_enrich_physical_lines")
+    @patch("frappe.utils.pdf.get_pdf")
+    def test_four_line_pick_list_renders_colour_segmentation_matrix(
+        self, get_pdf, _enrich, save_output
+    ):
+        get_pdf.return_value = b"%PDF-test"
+        save_output.return_value = "/private/files/four-line.pdf"
+        dns = []
+        parts = []
+        colours = ("BLUE", "GREEN", "YELLOW", "RED")
+        for number in range(1, 5):
+            name = "DN-{0}".format(number)
+            dns.append({
+                "name": name,
+                "shopify_order_number": "SOL{0}".format(number),
+                "awb_number": "AWB{0}".format(number),
+                "items": [],
+                "_service": [],
+                "_lines": [{
+                    "item_code": "SKU-SHARED",
+                    "item_name": "Shared item",
+                    "qty": number,
+                    "bundle": None,
+                }],
+            })
+            parts.append({
+                "part": number,
+                "name": "Line {0}".format(number),
+                "orders": 1,
+                "pieces": number,
+                "order_range": [number, number],
+                "_names": [name],
+            })
+
+        out = fulfillment._build_pick_list_pdf(
+            dns, "2026-08-04", 1, "08040830", parts=parts
+        )
+
+        self.assertEqual(out, "/private/files/four-line.pdf")
+        html = get_pdf.call_args.args[0]
+        self.assertIn("A. PICK AND SEGREGATE BY SKU", html)
+        self.assertIn("Total pieces by line", html)
+        self.assertIn("#1559a6", html)
+        self.assertIn("#207a3d", html)
+        self.assertIn("#986b00", html)
+        self.assertIn("#a32d2d", html)
+        for number, colour in enumerate(colours, 1):
+            self.assertIn("LINE {0} - {1}".format(number, colour), html)
+
 
 class _Row:
     """Stand-in for a Frappe doc/child row: attribute access + .get(), and a real

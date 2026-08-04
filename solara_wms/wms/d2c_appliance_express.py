@@ -19,6 +19,10 @@ DEFAULT_PREKIT_BUNDLES = (
     "SOL-AF-501-SIL-BASKET-P6-SPY-101",
     "SOL-AF-124-SIL-BAS-P6-SPY-101",
     "SOL-AF-124-SIL-BASKET-P6-SPY-101",
+    # Signature carton is also pre-kitted; the protective cover is already
+    # included in the appliance-bay pack and must not send the order back to a
+    # normal table.
+    "SOL-AF-501-SIL-BASKET-P6-SPY-101-CVR-BAG",
 )
 DEFAULT_EXPRESS_COMBO_BUNDLES = (
     "SOL-JUC-121-COMBO-CVR-101",
@@ -27,6 +31,18 @@ DEFAULT_EXPRESS_COMBO_BUNDLES = (
 )
 DEFAULT_EXPRESS_MULTIBOX_BUNDLES = (
     "SOL-AFO-501-JUC-121",
+    "SOL-AF-124-JUC-121",
+)
+# Loose physical add-ons explicitly approved for the two-carton AFO/AF124 +
+# juicer Express family.  Their presence must create an on-screen checklist,
+# not force the two factory cartons back through a normal packing table.
+DEFAULT_EXPRESS_MULTIBOX_ACCESSORIES = (
+    "SOL-AF-501-CVR-BAG",
+    "SOL-AF-PP-101",
+    "SOL-AF-SIL-BASKET-P6",
+    "SOL-JUC-BAG-121",
+    "SOL-SPY-101",
+    "SOL-WB-105",
 )
 STATION = "Appliance Express"
 
@@ -63,16 +79,20 @@ def express_config(settings=None):
         "multibox_bundles": _codes(
             settings.get("appliance_express_multibox_bundles"),
             DEFAULT_EXPRESS_MULTIBOX_BUNDLES),
+        "multibox_accessories": set(DEFAULT_EXPRESS_MULTIBOX_ACCESSORIES),
     }
 
 
 def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None,
-                   combo_bundles=None, multibox_bundles=None):
+                   combo_bundles=None, multibox_bundles=None,
+                   multibox_accessories=None):
     """Pure eligibility decision shared by wave rendering and the scan API."""
     appliance_skus = set(appliance_skus or DEFAULT_APPLIANCE_SKUS)
     prekit_bundles = set(prekit_bundles or DEFAULT_PREKIT_BUNDLES)
     combo_bundles = set(combo_bundles or DEFAULT_EXPRESS_COMBO_BUNDLES)
     multibox_bundles = set(multibox_bundles or DEFAULT_EXPRESS_MULTIBOX_BUNDLES)
+    multibox_accessories = set(
+        multibox_accessories or DEFAULT_EXPRESS_MULTIBOX_ACCESSORIES)
     box_count = cint(box_count or 1)
     lines = [row for row in (lines or []) if flt(_value(row, "qty")) > 0]
     primary = [row for row in lines
@@ -86,11 +106,16 @@ def classify_lines(lines, box_count=1, appliance_skus=None, prekit_bundles=None,
     # This branch works both on the whole DN during wave classification (two
     # primary cartons) and on one parcel during scan (one primary carton).
     if box_count > 1:
-        bundle = next(iter(bundles)) if len(bundles) == 1 else None
+        approved_multibox = bundles & multibox_bundles
+        bundle = next(iter(approved_multibox)) if len(approved_multibox) == 1 else None
         valid_primary = (primary and len(primary) <= box_count
                          and all(abs(flt(_value(row, "qty")) - 1) <= 0.001
                                  for row in primary))
-        if bundle in multibox_bundles and not loose and valid_primary:
+        accessory_lines = [row for row in lines if row not in primary]
+        valid_accessories = all(
+            str(_value(row, "item_code") or "").upper() in multibox_accessories
+            for row in accessory_lines)
+        if bundle and valid_primary and valid_accessories:
             return {
                 "eligible": True,
                 "kind": "multi_box_appliance_combo",
@@ -137,10 +162,11 @@ def classify_dn(dn, config=None):
         _value(dn, "_lines") or [],
         box_count=(len(_value(dn, "_awb_pairs") or []) or
                    cint(_value(dn, "custom_box_count")) or 1),
-        appliance_skus=config["appliance_skus"],
-        prekit_bundles=config["prekit_bundles"],
-        combo_bundles=config["combo_bundles"],
-        multibox_bundles=config["multibox_bundles"])
+        appliance_skus=config.get("appliance_skus"),
+        prekit_bundles=config.get("prekit_bundles"),
+        combo_bundles=config.get("combo_bundles"),
+        multibox_bundles=config.get("multibox_bundles"),
+        multibox_accessories=config.get("multibox_accessories"))
 
 
 def _barcodes(item_code):

@@ -2374,6 +2374,21 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
     chk = ("<span style='display:inline-block;width:7px;height:7px;"
            "border:1px solid #222;margin-right:4px'></span>")
 
+    # The four launch lines use one visual language from the SKU segregation
+    # matrix through every line's pack section. Extra future lines fall back to
+    # distinct accessible colours instead of silently reverting to monochrome.
+    line_themes = [
+        {"name": "BLUE", "dark": "#1559a6", "light": "#dceeff"},
+        {"name": "GREEN", "dark": "#207a3d", "light": "#dff5e3"},
+        {"name": "YELLOW", "dark": "#986b00", "light": "#fff4c7"},
+        {"name": "RED", "dark": "#a32d2d", "light": "#ffe0e0"},
+        {"name": "PURPLE", "dark": "#6941c6", "light": "#eee8ff"},
+        {"name": "TEAL", "dark": "#087e8b", "light": "#d9f4f5"},
+    ]
+
+    def line_theme(part_index):
+        return line_themes[(max(cint(part_index), 1) - 1) % len(line_themes)]
+
     def awb_cell(d):
         """EVERY parcel's AWB, one per line, numbered when there is more than one.
         Printing only awb_number here is what made multi-box orders look like they
@@ -2388,11 +2403,76 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
             for i, (a, _c) in enumerate(pairs)
         )
 
-    pick_rows = "".join(
-        "<tr><td>{0}</td><td>{1}</td><td style='text-align:right'>{2:g}</td></tr>".format(
-            esc(r["item_code"]), esc(r["item_name"]), r["qty"])
-        for r in sku_rows
-    )
+    if parts:
+        by_name = {d["name"]: d for d in dns}
+        matrix_parts = []
+        matrix = {}
+        for pt in parts:
+            chunk = [by_name[n] for n in pt.get("_names") or [] if n in by_name]
+            if not chunk:
+                continue
+            rows = _sku_summary(chunk, prekit_bundles)
+            quantities = {row["item_code"]: row["qty"] for row in rows}
+            matrix_parts.append((pt, quantities))
+            for row in rows:
+                matrix.setdefault(row["item_code"], row["item_name"])
+
+        line_headers = "".join(
+            "<th style='background:{dark};color:#fff;text-align:center'>"
+            "{station}<br><span style='font-size:8px'>{colour}</span></th>".format(
+                dark=line_theme(pt.get("part"))["dark"],
+                station=esc(pt.get("name") or "Line " + str(pt.get("part"))),
+                colour=line_theme(pt.get("part"))["name"])
+            for pt, _quantities in matrix_parts
+        )
+        matrix_rows = []
+        for sku in sorted(matrix):
+            qty_cells = "".join(
+                "<td style='text-align:center;background:{light};font-weight:bold'>{qty}</td>"
+                .format(light=line_theme(pt.get("part"))["light"],
+                        qty=("{0:g}".format(quantities.get(sku, 0))
+                             if quantities.get(sku, 0) else "&ndash;"))
+                for pt, quantities in matrix_parts
+            )
+            total = sum(quantities.get(sku, 0) for _pt, quantities in matrix_parts)
+            matrix_rows.append(
+                "<tr><td>{sku}</td><td>{item}</td>{qty_cells}"
+                "<td style='text-align:center;font-weight:bold'>{total:g}</td><td></td></tr>"
+                .format(sku=esc(sku), item=esc(matrix[sku]), qty_cells=qty_cells,
+                        total=total))
+        line_totals = "".join(
+            "<td style='text-align:center;background:{light};font-weight:bold'>{qty:g}</td>"
+            .format(light=line_theme(pt.get("part"))["light"],
+                    qty=sum(quantities.values()))
+            for pt, quantities in matrix_parts
+        )
+        pick_table = (
+            "<table border='1' cellspacing='0' cellpadding='4' width='100%' "
+            "style='border-collapse:collapse;font-size:9px'>"
+            "<thead><tr style='background:#101828;color:#fff'>"
+            "<th align='left'>SKU</th><th align='left'>Item</th>{line_headers}"
+            "<th>Total</th><th>Picker<br>initial</th></tr></thead>"
+            "<tbody>{rows}<tr style='background:#fafafa;font-weight:bold'>"
+            "<td colspan='2' align='right'>Total pieces by line</td>{line_totals}"
+            "<td style='text-align:center'>{units:g}</td><td></td></tr></tbody></table>"
+        ).format(line_headers=line_headers, rows="".join(matrix_rows),
+                 line_totals=line_totals, units=total_pieces)
+    else:
+        pick_rows = "".join(
+            "<tr><td>{0}</td><td>{1}</td><td style='text-align:right'>{2:g}</td></tr>".format(
+                esc(r["item_code"]), esc(r["item_name"]), r["qty"])
+            for r in sku_rows
+        )
+        pick_table = (
+            "<table border='1' cellspacing='0' cellpadding='4' width='100%' "
+            "style='border-collapse:collapse'>"
+            "<thead><tr style='background:#f0f0f0'>"
+            "<th align='left'>SKU</th><th align='left'>Item</th>"
+            "<th align='right'>Qty</th></tr></thead>"
+            "<tbody>{rows}<tr style='background:#fafafa;font-weight:bold'>"
+            "<td colspan='2' align='right'>Total pieces</td>"
+            "<td align='right'>{units:g}</td></tr></tbody></table>"
+        ).format(rows=pick_rows, units=total_pieces)
 
     def content_cell(d):
         parts = []
@@ -2409,7 +2489,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
                 .format(esc(it.item_code), flt(it.qty)))
         return "<br>".join(parts)
 
-    def pack_rows_html(seq, start_no):
+    def pack_rows_html(seq, start_no, shade_color="#e8e8e8"):
         """Section B rows for a slice, numbered GLOBALLY (start_no..) so the #
         column always equals the position in the batch's label sequence."""
         return "".join(
@@ -2419,7 +2499,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
              "<td style='text-align:center;font-weight:bold'>{pieces:g}</td>"
              "<td></td><td></td></tr>").format(
                 # Shaded row = multi-piece order → 100% second-person QC count (SOP-PACK-QC)
-                shade=" style='background:#e8e8e8'"
+                shade=" style='background:{0}'".format(shade_color)
                       if _pick_list_piece_count(d, prekit_bundles) > 1 else "",
                 n=start_no + i,
                 order=esc(d.get("shopify_order_number") or d.get("shopify_order_id") or d["name"]),
@@ -2440,17 +2520,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
          <span style="color:#888">generated {gen}</span></p>
 
       <h3 style="margin:12px 0 4px">{pick_heading}</h3>
-      <table border="1" cellspacing="0" cellpadding="4" width="100%"
-             style="border-collapse:collapse">
-        <thead><tr style="background:#f0f0f0">
-          <th align="left">SKU</th><th align="left">Item</th><th align="right">Qty</th>
-        </tr></thead>
-        <tbody>{pick_rows}
-          <tr style="background:#fafafa;font-weight:bold">
-            <td colspan="2" align="right">Total pieces</td>
-            <td align="right">{units:g}</td></tr>
-        </tbody>
-      </table>
+      {pick_table}
 
       {section_b}
     </div>
@@ -2470,7 +2540,7 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
           <col style="width:4%"><col style="width:45%"><col style="width:5%">
           <col style="width:5.5%"><col style="width:5.5%">
         </colgroup>
-        <thead><tr style="background:#f0f0f0">
+        <thead><tr style="background:{header_bg};color:{header_text}">
           <th>#</th><th align="left">Order</th><th align="left">AWB(s)</th>
           <th>Box</th><th align="left">Contents</th>
           <th>Pcs</th>
@@ -2491,23 +2561,29 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
             if not chunk:
                 continue
             station = pt.get("name") or "Line " + str(pt["part"])
+            theme = line_theme(pt.get("part"))
+            station_display = "{0} - {1}".format(station, theme["name"])
             sections.append(
                 "<div style='page-break-before:always'></div>"
-                "<h2 style='font-size:26px;background:#000;color:#fff;padding:10px;"
+                "<h2 style='font-size:26px;background:{dark};color:#fff;padding:10px;"
                 "text-align:center;margin:0 0 2px'>{station} &nbsp;·&nbsp; "
                 "orders {a}&ndash;{b} &nbsp;·&nbsp; {o} orders / {pc:g} pcs</h2>"
-                .format(station=esc(station).upper(), a=pt["order_range"][0],
+                .format(dark=theme["dark"], station=esc(station_display).upper(),
+                        a=pt["order_range"][0],
                         b=pt["order_range"][1], o=pt["orders"],
                         pc=pt.get("pieces") or 0)
                 + "<h3 style='margin:6px 0 3px'>B. PACK + QC — {station} "
-                  "(matches label sequence)</h3>".format(station=esc(station))
-                + B_TABLE.format(rows=pack_rows_html(chunk, pt["order_range"][0]))
+                  "(matches label sequence)</h3>".format(station=esc(station_display))
+                + B_TABLE.format(
+                    rows=pack_rows_html(chunk, pt["order_range"][0], theme["light"]),
+                    header_bg=theme["dark"], header_text="#fff")
             )
         section_b = "".join(sections)
     else:
         section_b = ("<h3 style='margin:12px 0 3px'>B. PACK + QC (by order — "
                      "matches label sequence)</h3>"
-                     + B_TABLE.format(rows=pack_rows_html(dns, 1)))
+                     + B_TABLE.format(rows=pack_rows_html(dns, 1),
+                                      header_bg="#f0f0f0", header_text="#000"))
 
     html = html.format(
         date=on_date, batch_no=batch_no, stamp=stamp, orders=len(dns),
@@ -2516,10 +2592,12 @@ def _build_pick_list_pdf(dns, on_date, batch_no, stamp, part_label=None, parts=N
         units=total_pieces, skus=len(sku_rows),
         gen=now_datetime().strftime("%Y-%m-%d %H:%M"),
         pick_heading=(
+            "A. PICK AND SEGREGATE BY SKU (place quantities directly into the colour-coded line zones)"
+            if parts else
             "A. PICK (by carton SKU — approved pre-kits stay as one carton)"
             if prekit_bundles else
             "A. PICK (by SKU — bundles exploded to components)"),
-        pick_rows=pick_rows, section_b=section_b)
+        pick_table=pick_table, section_b=section_b)
 
     pdf_bytes = get_pdf(html)
     return _save_output_file(

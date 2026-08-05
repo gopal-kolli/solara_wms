@@ -1,0 +1,31 @@
+{
+ "doctype":"DocType",
+ "istable":1,
+ "editable_grid":1,
+ "engine":"InnoDB",
+ "field_order":["item_code","item_name","ean","expected_qty","received_qty","good_qty","repairable_qty","scrap_qty","investigation_qty","warehouse_finding","accessories_complete","visual_pass","power_test","function_test","notes"],
+ "fields":[
+  {"fieldname":"item_code","fieldtype":"Link","options":"Item","label":"Item","reqd":1,"in_list_view":1},
+  {"fieldname":"item_name","fieldtype":"Data","label":"Item Name","read_only":1,"in_list_view":1},
+  {"fieldname":"ean","fieldtype":"Data","label":"EAN / Barcode"},
+  {"fieldname":"expected_qty","fieldtype":"Float","label":"Expected Qty","reqd":1,"in_list_view":1},
+  {"fieldname":"received_qty","fieldtype":"Float","label":"Received Qty","reqd":1,"in_list_view":1},
+  {"fieldname":"good_qty","fieldtype":"Float","label":"Good","default":"0","in_list_view":1},
+  {"fieldname":"repairable_qty","fieldtype":"Float","label":"Repairable","default":"0","in_list_view":1},
+  {"fieldname":"scrap_qty","fieldtype":"Float","label":"Scrap Hold","default":"0","in_list_view":1},
+  {"fieldname":"investigation_qty","fieldtype":"Float","label":"Investigation / No Receipt","default":"0","in_list_view":1},
+  {"fieldname":"warehouse_finding","fieldtype":"Select","label":"Warehouse Finding","options":"No fault found\nTransit damage\nUsed / customer damage\nMissing accessories\nWrong product\nShort quantity\nExcess quantity\nPackaging damage only\nOther"},
+  {"fieldname":"accessories_complete","fieldtype":"Check","label":"Accessories Complete","default":"0"},
+  {"fieldname":"visual_pass","fieldtype":"Check","label":"Visual Check Passed","default":"0"},
+  {"fieldname":"power_test","fieldtype":"Select","label":"Power Test","options":"Not Applicable\nPass\nFail","default":"Not Applicable"},
+  {"fieldname":"function_test","fieldtype":"Select","label":"Function Test","options":"Not Applicable\nPass\nFail","default":"Not Applicable"},
+  {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"}
+ ],
+ "index_web_pages_for_search":0,
+ "modified":"2026-08-05 00:00:00.000000",
+ "modified_by":"Administrator",
+ "module":"WMS",
+ "name":"B2B Return Lot Item",
+ "owner":"Administrator",
+ "permissions":[]
+}

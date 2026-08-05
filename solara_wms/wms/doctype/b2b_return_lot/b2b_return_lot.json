@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "autoname": "format:B2B-RET-{YYYY}-{#####}",
+ "creation": "2026-08-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status", "channel", "inventory_treatment", "platform_return_id", "platform_document_no",
+  "section_source", "company", "customer", "purchase_order", "sales_order", "delivery_note", "sales_invoice", "source_warehouse",
+  "section_logistics", "vehicle_number", "lr_number", "expected_cartons", "received_cartons", "cartons",
+  "section_items", "items",
+  "section_evidence", "platform_document_url", "arrival_photo_url", "open_photo_url", "qc_evidence_url", "notes",
+  "section_control", "exception", "exception_reason", "inventory_status", "draft_stock_entry", "return_intake", "received_at", "received_by", "completed_at"
+ ],
+ "fields": [
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"QC In Progress\nPending HQ Review\nException\nApproved\nRejected\nClosed","default":"QC In Progress","reqd":1,"in_list_view":1},
+  {"fieldname":"channel","fieldtype":"Select","label":"Channel","options":"Blinkit\nSwiggy\nZepto\nAmazon VC\nFlipkart VC\nOffline\nOther","reqd":1,"in_list_view":1},
+  {"fieldname":"inventory_treatment","fieldtype":"Select","label":"Inventory Treatment","options":"Consignment Return\nOutright Return\nInvestigation","reqd":1,"in_list_view":1},
+  {"fieldname":"platform_return_id","fieldtype":"Data","label":"Platform RTV / Return ID","reqd":1,"unique":1,"in_list_view":1},
+  {"fieldname":"platform_document_no","fieldtype":"Data","label":"Platform Document Number"},
+
+  {"fieldname":"section_source","fieldtype":"Section Break","label":"Atlas Source"},
+  {"fieldname":"company","fieldtype":"Link","options":"Company","label":"Company","reqd":1},
+  {"fieldname":"customer","fieldtype":"Link","options":"Customer","label":"Customer / Platform"},
+  {"fieldname":"purchase_order","fieldtype":"Data","label":"Platform PO"},
+  {"fieldname":"sales_order","fieldtype":"Link","options":"Sales Order","label":"Sales Order"},
+  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Original Delivery Note"},
+  {"fieldname":"sales_invoice","fieldtype":"Link","options":"Sales Invoice","label":"Original Sales Invoice"},
+  {"fieldname":"source_warehouse","fieldtype":"Link","options":"Warehouse","label":"Platform Consignment Warehouse"},
+
+  {"fieldname":"section_logistics","fieldtype":"Section Break","label":"Physical Receipt"},
+  {"fieldname":"vehicle_number","fieldtype":"Data","label":"Vehicle Number"},
+  {"fieldname":"lr_number","fieldtype":"Data","label":"LR / Gate Pass"},
+  {"fieldname":"expected_cartons","fieldtype":"Int","label":"Expected Cartons","default":"0"},
+  {"fieldname":"received_cartons","fieldtype":"Int","label":"Received Cartons","default":"0","read_only":1},
+  {"fieldname":"cartons","fieldtype":"Table","options":"B2B Return Carton","label":"Cartons"},
+
+  {"fieldname":"section_items","fieldtype":"Section Break","label":"Expected, Received and QC"},
+  {"fieldname":"items","fieldtype":"Table","options":"B2B Return Lot Item","label":"Items","reqd":1},
+
+  {"fieldname":"section_evidence","fieldtype":"Section Break","label":"Mandatory Evidence"},
+  {"fieldname":"platform_document_url","fieldtype":"Data","label":"Platform RTV / Return Document","length":500},
+  {"fieldname":"arrival_photo_url","fieldtype":"Data","label":"Arrival / Sealed Cartons Photo","length":500},
+  {"fieldname":"open_photo_url","fieldtype":"Data","label":"Opened Cartons Photo","length":500},
+  {"fieldname":"qc_evidence_url","fieldtype":"Data","label":"QC / Damage Evidence","length":500},
+  {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"},
+
+  {"fieldname":"section_control","fieldtype":"Section Break","label":"Approval and Inventory Control"},
+  {"fieldname":"exception","fieldtype":"Check","label":"Exception","default":"0","read_only":1,"in_list_view":1},
+  {"fieldname":"exception_reason","fieldtype":"Small Text","label":"Exception Reason","read_only":1},
+  {"fieldname":"inventory_status","fieldtype":"Select","label":"Inventory Status","options":"Pending QC\nPending HQ Approval\nDraft Transfer Prepared\nDraft Return Intake Prepared\nException\nPosted\nClosed","default":"Pending QC","read_only":1,"in_list_view":1},
+  {"fieldname":"draft_stock_entry","fieldtype":"Link","options":"Stock Entry","label":"Draft Stock Entry","read_only":1},
+  {"fieldname":"return_intake","fieldtype":"Link","options":"Return Intake","label":"Return Intake","read_only":1},
+  {"fieldname":"received_at","fieldtype":"Datetime","label":"Receipt Started At","read_only":1},
+  {"fieldname":"received_by","fieldtype":"Data","label":"Received By","read_only":1},
+  {"fieldname":"completed_at","fieldtype":"Datetime","label":"QC Completed At","read_only":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "B2B Return Lot",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"print":1,"read":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"read":1,"role":"Returns Manager","write":1},
+  {"read":1,"role":"HQ Returns Reviewer","write":1}
+ ],
+ "sort_field":"creation",
+ "sort_order":"DESC",
+ "track_changes":1
+}

@@ -1,10 +1,33 @@
 from datetime import datetime, timedelta
 from unittest import TestCase
 
-from solara_wms.wms.warehouse_ops import build_metrics
+from solara_wms.wms.warehouse_ops import build_b2b_return_metrics, build_metrics
 
 
 class TestWarehouseOpsMetrics(TestCase):
+    def test_b2b_return_lots_keep_channel_and_disposition_visible(self):
+        lots = [
+            {"channel": "Blinkit", "inventory_treatment": "Consignment Return",
+             "status": "Pending HQ Review", "expected_cartons": 10,
+             "received_cartons": 9, "exception": 1},
+            {"channel": "Swiggy", "inventory_treatment": "Outright Return",
+             "status": "QC In Progress", "expected_cartons": 2,
+             "received_cartons": 2, "exception": 0},
+        ]
+        items = [
+            {"expected_qty": 20, "received_qty": 18, "good_qty": 14,
+             "repairable_qty": 2, "scrap_qty": 1, "investigation_qty": 1},
+            {"expected_qty": 3, "received_qty": 3, "good_qty": 3,
+             "repairable_qty": 0, "scrap_qty": 0, "investigation_qty": 0},
+        ]
+        out = build_b2b_return_metrics(lots, items)
+        self.assertEqual(out["lots"], 2)
+        self.assertEqual(out["received_cartons"], 11)
+        self.assertEqual(out["good_units"], 17)
+        self.assertEqual(out["pending_review"], 1)
+        self.assertEqual(out["exceptions"], 1)
+        self.assertEqual(out["channels"], {"Blinkit": 1, "Swiggy": 1})
+
     def test_lines_show_fair_rates_presence_and_completed_multibox_orders(self):
         now = datetime(2026, 8, 2, 18, 0)
         pack = [

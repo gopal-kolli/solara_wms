@@ -249,6 +249,30 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
     }
 
 
+def build_b2b_return_metrics(lot_rows, item_rows):
+    """Privacy-safe platform-return totals for the management wallboard."""
+    channels = Counter(_value(row, "channel") or "Other" for row in lot_rows)
+    treatments = Counter(_value(row, "inventory_treatment") or "Investigation"
+                         for row in lot_rows)
+    return {
+        "lots": len(lot_rows),
+        "expected_cartons": sum(cint(_value(row, "expected_cartons")) for row in lot_rows),
+        "received_cartons": sum(cint(_value(row, "received_cartons")) for row in lot_rows),
+        "expected_units": round(sum(flt(_value(row, "expected_qty")) for row in item_rows), 1),
+        "received_units": round(sum(flt(_value(row, "received_qty")) for row in item_rows), 1),
+        "good_units": round(sum(flt(_value(row, "good_qty")) for row in item_rows), 1),
+        "repairable_units": round(sum(flt(_value(row, "repairable_qty")) for row in item_rows), 1),
+        "scrap_units": round(sum(flt(_value(row, "scrap_qty")) for row in item_rows), 1),
+        "investigation_units": round(sum(flt(_value(row, "investigation_qty"))
+                                         for row in item_rows), 1),
+        "pending_review": sum(1 for row in lot_rows
+                               if _value(row, "status") == "Pending HQ Review"),
+        "exceptions": sum(cint(_value(row, "exception")) for row in lot_rows),
+        "channels": dict(channels),
+        "treatments": dict(treatments),
+    }
+
+
 @frappe.whitelist()
 def warehouse_ops_summary(on_date=None, line_count=6):
     """One privacy-safe payload for the warehouse management and TV PWA."""
@@ -287,9 +311,20 @@ def warehouse_ops_summary(on_date=None, line_count=6):
         fields=["name", "station", "status", "staged_at", "audited_at",
                 "duration_sec", "recheck_count"], limit_page_length=0)
     qc_rows = qc_today + [row for row in qc_open if _value(row, "name") not in qc_names]
-    return build_metrics(
+    output = build_metrics(
         pack_rows, return_rows, return_items, dispatch_rows,
         [_value(row, "awb") for row in dispatched],
         _heartbeats(line_count) if day == getdate(nowdate()) else {},
         now_datetime(), line_count=line_count, pending_return_count=pending,
         qc_rows=qc_rows)
+    b2b_lots = frappe.get_all(
+        "B2B Return Lot", filters={"received_at": ["between", [start, end]]},
+        fields=["name", "status", "channel", "inventory_treatment", "expected_cartons",
+                "received_cartons", "exception"], limit_page_length=0)
+    lot_names = [_value(row, "name") for row in b2b_lots]
+    b2b_items = frappe.get_all(
+        "B2B Return Lot Item", filters={"parent": ["in", lot_names]},
+        fields=["expected_qty", "received_qty", "good_qty", "repairable_qty",
+                "scrap_qty", "investigation_qty"], limit_page_length=0) if lot_names else []
+    output["b2b_returns"] = build_b2b_return_metrics(b2b_lots, b2b_items)
+    return output

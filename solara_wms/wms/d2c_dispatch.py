@@ -31,15 +31,18 @@ def _find_dn_by_awb(awb):
                               fields=["name"], limit_page_length=1)
         if rows:
             return rows[0].name
-    # N-box orders keep parcels 3+ only in custom_awb_list (JSON) — scan the
-    # recent multibox DNs (bounded set) and match the AWB inside it.
+    # N-box orders keep parcels 3+ only in custom_awb_list (JSON). Query the
+    # JSON field for this AWB, then verify an exact parsed match. The previous
+    # four-day posting-date cutoff made valid older labels impossible to scan.
+    # Exact verification also prevents a partial AWB from matching a longer one.
     for d in frappe.get_all(
             "Delivery Note",
-            filters={"custom_d2c_defer_si": 1, "docstatus": 1,
-                     "custom_box_count": [">", 2],
-                     "posting_date": [">=", add_days(nowdate(), -4)]},
-            fields=["name", "custom_awb_list"], limit_page_length=0):
-        if d.custom_awb_list and awb in d.custom_awb_list:
+            filters={"docstatus": 1,
+                     "custom_awb_list": ["like", "%{0}%".format(awb)]},
+            fields=["name"], limit_page_length=20):
+        dn = frappe.get_doc("Delivery Note", d.name)
+        if any((parcel_awb or "").strip() == awb
+               for parcel_awb, _courier in _awb_courier_pairs(dn)):
             return d.name
     return None
 

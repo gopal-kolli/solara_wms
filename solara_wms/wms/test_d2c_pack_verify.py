@@ -1,5 +1,6 @@
 import json
 from unittest import TestCase
+from unittest.mock import patch
 
 from solara_wms.wms import d2c_pack_verify as pack_verify
 
@@ -13,6 +14,98 @@ class _Doc:
 
 
 class TestParcelPieceResolution(TestCase):
+    @patch.object(pack_verify.frappe, "get_all", return_value=[])
+    def test_dispatched_delivery_note_is_blocked_from_packing(self, _get_all):
+        dn = _Doc(
+            custom_dispatched=1,
+            custom_dispatched_at="2026-08-05 14:38:01",
+            custom_dispatched_by="clickpost-track",
+            shopify_order_number="SOL1243084",
+        )
+
+        result = pack_verify._dispatch_hold(dn, "SF3721969088OLL")
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["order"], "SOL1243084")
+        self.assertIn("ALREADY DISPATCHED", result["message"])
+        self.assertIn("DO NOT PACK", result["message"])
+
+    @patch.object(
+        pack_verify.frappe,
+        "get_all",
+        return_value=[{
+            "scanned_at": "2026-08-05 15:24:02",
+            "scanned_by": "security",
+        }],
+    )
+    def test_parcel_dispatch_scan_blocks_partially_dispatched_multibox_dn(
+            self, _get_all):
+        dn = _Doc(custom_dispatched=0, shopify_order_number="SOL-MULTIBOX")
+
+        result = pack_verify._dispatch_hold(dn, "AWB-BOX-1")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("security", result["message"])
+
+    @patch.object(pack_verify.frappe, "get_all", return_value=[])
+    def test_todays_undispatched_parcel_has_no_hold(self, _get_all):
+        dn = _Doc(
+            custom_dispatched=0,
+            posting_date=pack_verify.nowdate(),
+            courier_partner="Delhivery",
+            shopify_order_number="SOL-READY",
+        )
+
+        self.assertIsNone(pack_verify._dispatch_hold(dn, "AWB-READY"))
+
+    @patch.object(
+        pack_verify,
+        "_cp_track",
+        return_value={"29044411443061": "bucket:6|delivered"},
+    )
+    @patch.object(
+        pack_verify,
+        "_awb_courier_pairs",
+        return_value=[("29044411443061", "Delhivery")],
+    )
+    @patch.object(pack_verify.frappe, "get_all", return_value=[])
+    def test_old_delivered_awb_is_blocked_by_live_clickpost(
+            self, _get_all, _pairs, cp_track):
+        dn = _Doc(
+            custom_dispatched=0,
+            posting_date="2026-07-31",
+            courier_partner="Delhivery",
+            shopify_order_number="SOL1242811",
+        )
+
+        result = pack_verify._dispatch_hold(dn, "29044411443061")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("delivered", result["message"])
+        cp_track.assert_called_once_with(["29044411443061"], 4)
+
+    @patch.object(
+        pack_verify,
+        "_cp_track",
+        return_value={"AWB-PENDING": "bucket:1|pickup pending"},
+    )
+    @patch.object(
+        pack_verify,
+        "_awb_courier_pairs",
+        return_value=[("AWB-PENDING", "Delhivery")],
+    )
+    @patch.object(pack_verify.frappe, "get_all", return_value=[])
+    def test_old_unmoved_awb_remains_packable(
+            self, _get_all, _pairs, _cp_track):
+        dn = _Doc(
+            custom_dispatched=0,
+            posting_date="2026-07-31",
+            courier_partner="Delhivery",
+            shopify_order_number="SOL-PENDING",
+        )
+
+        self.assertIsNone(pack_verify._dispatch_hold(dn, "AWB-PENDING"))
+
     def test_multibox_returns_only_scanned_box_contents(self):
         dn = _Doc(custom_parcel_plan=json.dumps([
             {'items': [{'item_code': 'AIR-FRYER', 'qty': 1}]},
@@ -131,3 +224,106 @@ class TestParcelPieceResolution(TestCase):
 
         self.assertEqual(result['status'], 'error')
         self.assertIn('photo', result['message'].lower())
+
+
+class TestSiblingDispatchHold(TestCase):
+
+    @patch.object(pack_verify.frappe, "get_all", return_value=[])
+    def test_no_siblings_is_not_held(self, _get_all):
+        dn = _Doc(shopify_order_id="6001", shopify_order_number="SOL9001")
+        self.assertIsNone(pack_verify._dispatched_sibling_hold(dn, "AWB-NEW"))
+
+    @patch.object(pack_verify.frappe, "get_all")
+    def test_dispatched_sibling_blocks_new_awb(self, get_all):
+        get_all.return_value = [
+            frappe._dict(name="SHPDN27-1", custom_dispatched=1,
+                         custom_dispatched_at="2026-07-20 10:00:00",
+                         custom_dispatched_by="security", posting_date="2026-07-20"),
+        ]
+        dn = _Doc(shopify_order_id="6001", shopify_order_number="SOL9001")
+
+        result = pack_verify._dispatched_sibling_hold(dn, "NEW-AWB-777")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("SHPDN27-1", result["message"])
+        self.assertIn("DO NOT PACK", result["message"])
+
+    @patch.object(pack_verify.frappe, "get_all")
+    def test_self_dn_is_excluded_from_its_own_sibling_query(self, get_all):
+        get_all.return_value = [
+            frappe._dict(name="SHPDN27-SELF", custom_dispatched=1,
+                         posting_date="2026-08-05"),
+        ]
+        dn = _Doc(name="SHPDN27-SELF", shopify_order_number="SOL9002")
+
+        self.assertIsNone(pack_verify._dispatched_sibling_hold(dn, "AWB-1"))
+
+    @patch.object(pack_verify.frappe, "get_all")
+    def test_sibling_dispatch_scan_blocks_even_without_flag(self, get_all):
+        get_all.side_effect = [
+            [frappe._dict(name="SHPDN27-2", custom_dispatched=0,
+                          posting_date="2026-08-04", courier_partner="Shadowfax")],
+            [frappe._dict(delivery_note="SHPDN27-2",
+                          scanned_at="2026-08-04 18:00:00", scanned_by="security")],
+        ]
+        dn = _Doc(shopify_order_id="6002")
+
+        result = pack_verify._dispatched_sibling_hold(dn, "NEW-AWB")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("security", result["message"])
+
+    @patch.object(pack_verify.frappe, "get_all")
+    def test_undispatched_sibling_does_not_block(self, get_all):
+        get_all.side_effect = [
+            [frappe._dict(name="SHPDN27-3", custom_dispatched=0,
+                          posting_date=pack_verify.nowdate(), courier_partner="Delhivery")],
+            [],
+        ]
+        dn = _Doc(shopify_order_number="SOL9003")
+        self.assertIsNone(pack_verify._dispatched_sibling_hold(dn, "AWB-1"))
+
+    @patch.object(pack_verify.frappe, "get_all")
+    def test_replacement_dn_is_exempt_no_query_issued(self, get_all):
+        dn = _Doc(is_replacement=1, shopify_order_id="6003")
+        self.assertIsNone(pack_verify._dispatched_sibling_hold(dn, "AWB-REP"))
+        get_all.assert_not_called()
+
+    @patch.object(pack_verify.frappe, "get_all")
+    def test_matches_on_order_id_when_order_number_absent(self, get_all):
+        get_all.return_value = [
+            frappe._dict(name="SHPDN27-4", custom_dispatched=1,
+                         posting_date="2026-08-01", courier_partner="Delhivery"),
+        ]
+        dn = _Doc(shopify_order_id="6004", shopify_order_number=None)
+
+        result = pack_verify._dispatched_sibling_hold(dn, "AWB-X")
+
+        self.assertEqual(result["status"], "error")
+        called_or_filters = get_all.call_args.kwargs["or_filters"]
+        self.assertEqual(called_or_filters, {"shopify_order_id": "6004"})
+
+    @patch.object(
+        pack_verify,
+        "_tracking_for_dns",
+        return_value={"SHPDN27-5": [("OLD-AWB", "bucket:6|delivered")]})
+    @patch.object(
+        pack_verify,
+        "_awb_courier_pairs",
+        return_value=[("OLD-AWB", "Delhivery")])
+    @patch.object(pack_verify.frappe, "get_all")
+    @patch.object(pack_verify.frappe, "get_doc")
+    def test_old_unflagged_unscanned_sibling_caught_by_live_tracking(
+            self, get_doc, get_all, _pairs, _track):
+        get_all.side_effect = [
+            [frappe._dict(name="SHPDN27-5", custom_dispatched=0,
+                          posting_date="2026-07-15", courier_partner="Delhivery")],
+            [],
+        ]
+        get_doc.return_value = _Doc(name="SHPDN27-5")
+        dn = _Doc(shopify_order_id="6005")
+
+        result = pack_verify._dispatched_sibling_hold(dn, "NEW-AWB-2")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("delivered", result["message"])

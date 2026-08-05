@@ -19,6 +19,62 @@ class _Doc:
 
 
 class TestDeliveryNoteResolution(TestCase):
+    @patch.object(
+        dispatch,
+        "_awb_courier_pairs",
+        return_value=[
+            ("29044411440946", "Delhivery"),
+            ("29044411440950", "Delhivery"),
+            ("29044411440961", "Delhivery"),
+        ],
+    )
+    @patch.object(
+        dispatch.frappe,
+        "get_doc",
+        return_value=_Doc(name="SHPDN27-57424"),
+    )
+    @patch.object(dispatch.frappe, "get_all")
+    def test_third_parcel_awb_resolves_without_age_cutoff(
+            self, get_all, _get_doc, _pairs):
+        get_all.side_effect = [
+            [],
+            [],
+            [_Row(name="SHPDN27-57424")],
+        ]
+
+        self.assertEqual(
+            dispatch._find_dn_by_awb("29044411440961"),
+            "SHPDN27-57424",
+        )
+        self.assertEqual(
+            get_all.call_args_list[2].kwargs["filters"],
+            {
+                "docstatus": 1,
+                "custom_awb_list": ["like", "%29044411440961%"],
+            },
+        )
+
+    @patch.object(
+        dispatch,
+        "_awb_courier_pairs",
+        return_value=[("290444114409610", "Delhivery")],
+    )
+    @patch.object(
+        dispatch.frappe,
+        "get_doc",
+        return_value=_Doc(name="SHPDN27-57424"),
+    )
+    @patch.object(dispatch.frappe, "get_all")
+    def test_awb_json_candidate_requires_exact_match(
+            self, get_all, _get_doc, _pairs):
+        get_all.side_effect = [
+            [],
+            [],
+            [_Row(name="SHPDN27-57424")],
+        ]
+
+        self.assertIsNone(dispatch._find_dn_by_awb("29044411440961"))
+
     @patch.object(dispatch, "_awb_courier_pairs", return_value=[("WB123", "Shadowfax")])
     @patch.object(dispatch.frappe, "get_doc", return_value=_Doc(name="SHPDN27-58359"))
     @patch.object(dispatch.frappe, "get_all", return_value=[_Row(name="SHPDN27-58359")])

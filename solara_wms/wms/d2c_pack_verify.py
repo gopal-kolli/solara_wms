@@ -21,9 +21,15 @@ dashboard proxies these with its own token (see app/routes/warehouse.py).
 import json
 
 import frappe
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, getdate, now_datetime, nowdate
 
-from solara_wms.wms.d2c_dispatch import _resolve
+from solara_wms.wms.d2c_dispatch import (
+    _CP_ID,
+    _cp_track,
+    _resolve,
+    _tracking_for_dns,
+    _tracking_says_dispatched,
+)
 from solara_wms.wms.d2c_fulfillment import _awb_courier_pairs, _enrich_physical_lines
 
 
@@ -32,6 +38,167 @@ def _log(title, msg):
         frappe.log_error(message=msg, title=title)
     except Exception:
         pass
+
+
+def _dispatch_hold(dn, awb):
+    """Return a hard pack hold once the parcel has left the warehouse.
+
+    ``custom_dispatched`` is stamped by both the security handover flow and the
+    ClickPost tracking audit. The parcel-level scan lookup also covers a
+    partially handed-over multi-box order before the DN-level flag is set.
+    """
+    scans = []
+    if awb:
+        scans = frappe.get_all(
+            "D2C Dispatch Scan",
+            filters={"awb": awb},
+            fields=["scanned_at", "scanned_by"],
+            limit_page_length=1,
+        )
+    live_status = ""
+    if not cint(dn.get("custom_dispatched")) and not scans:
+        # Historical DNs can predate PackVerify and have no warehouse dispatch
+        # scan. For an older ClickPost-tracked label, ask the courier directly.
+        # Today/tomorrow's normal packing work does not incur this network call,
+        # and ClickPost failure returns no status so an outage cannot stop lines.
+        posting_date = dn.get("posting_date")
+        courier = next(
+            (value for parcel_awb, value in _awb_courier_pairs(dn)
+             if (parcel_awb or "").strip() == awb),
+            None,
+        ) or dn.get("courier_partner")
+        courier_key = (courier or "").strip().lower()
+        if (posting_date and courier_key and courier_key != "elasticrun"
+                and getdate(posting_date) < getdate(nowdate())):
+            live_status = _cp_track(
+                [awb], _CP_ID.get(courier_key, 4)
+            ).get(awb, "")
+        if not _tracking_says_dispatched(live_status):
+            return None
+
+    when = None
+    who = None
+    if scans:
+        when = scans[0].get("scanned_at")
+        who = scans[0].get("scanned_by")
+    if not when:
+        when = dn.get("custom_dispatched_at")
+    if not who:
+        who = dn.get("custom_dispatched_by")
+    if live_status:
+        who = "ClickPost live check"
+
+    detail = ""
+    if when:
+        detail += " " + str(when)[:16]
+    if who:
+        detail += " by " + str(who)
+    if live_status:
+        detail += " (" + live_status.split("|", 1)[-1] + ")"
+    return {
+        "status": "error",
+        "dn": getattr(dn, "name", None),
+        "awb": awb,
+        "order": dn.get("shopify_order_number") or dn.get("shopify_order_id"),
+        "message": "ALREADY DISPATCHED{0} — DO NOT PACK OR APPLY ANOTHER LABEL."
+                   .format(detail),
+    }
+
+
+def _dispatched_sibling_hold(dn, awb):
+    """Return a hard pack hold if a DIFFERENT Delivery Note for the SAME Shopify
+    order has already dispatched (2026-07-26 incident: duplicate/orphan Sales
+    Orders sharing one shopify_order_id where one already shipped + was re-released,
+    minting a genuinely new AWB that per-AWB checks cannot catch).
+
+    Exempt: ``is_replacement`` DNs (OPD captain-approved replacement/RTO reship)
+    are EXPECTED to ship after an earlier DN for the same order.
+    """
+    if cint(dn.get("is_replacement")):
+        return None
+
+    order_id = str(dn.get("shopify_order_id") or "").strip()
+    order_number = str(dn.get("shopify_order_number") or "").strip().upper()
+    if not order_id and not order_number:
+        return None
+
+    or_filters = {}
+    if order_id:
+        or_filters["shopify_order_id"] = order_id
+    if order_number:
+        or_filters["shopify_order_number"] = order_number
+
+    dn_name = getattr(dn, "name", None) or dn.get("name")
+    fields = ["name", "custom_dispatched", "custom_dispatched_at",
+              "custom_dispatched_by", "posting_date", "courier_partner"] + [
+        f for f in ("awb_number", "custom_awb_2", "custom_awb_list")
+        if frappe.get_meta("Delivery Note").has_field(f)
+    ]
+    siblings = [
+        s for s in frappe.get_all(
+            "Delivery Note", filters={"docstatus": 1}, or_filters=or_filters,
+            fields=fields, limit_page_length=20,
+        ) if s.name != dn_name
+    ]
+    if not siblings:
+        return None
+
+    flagged = next((s for s in siblings if cint(s.get("custom_dispatched"))), None)
+    scan = None
+    if not flagged:
+        rows = frappe.get_all(
+            "D2C Dispatch Scan",
+            filters={"delivery_note": ["in", [s.name for s in siblings]]},
+            fields=["delivery_note", "scanned_at", "scanned_by"],
+            order_by="scanned_at asc", limit_page_length=1,
+        )
+        scan = rows[0] if rows else None
+
+    # For old un-flagged, un-scanned siblings: check live ClickPost tracking
+    # (reuse existing vetted bucket logic from d2c_dispatch).
+    live_status, live_sib = "", None
+    if not flagged and not scan:
+        old = [s for s in siblings if s.get("posting_date")
+               and getdate(s["posting_date"]) < getdate(nowdate())]
+        if old:
+            tracking = _tracking_for_dns(old)
+            for s in old:
+                for sib_awb, status in tracking.get(s.name, []):
+                    courier = next((c for a, c in _awb_courier_pairs(frappe.get_doc("Delivery Note", s.name))
+                                    if a == sib_awb), s.get("courier_partner"))
+                    if (courier or "").strip().lower() == "elasticrun":
+                        continue
+                    if _tracking_says_dispatched(status):
+                        live_status, live_sib = status, s.name
+                        break
+                if live_status:
+                    break
+
+    if not (flagged or scan or live_status):
+        return None
+
+    sib_name = (flagged.name if flagged else scan.delivery_note if scan else live_sib)
+    when = (flagged.get("custom_dispatched_at") if flagged
+            else scan.scanned_at if scan else None)
+    who = (flagged.get("custom_dispatched_by") if flagged
+           else scan.scanned_by if scan else "ClickPost live check")
+    detail = ""
+    if when:
+        detail += " " + str(when)[:16]
+    if who:
+        detail += " by " + str(who)
+    if live_status:
+        detail += " (" + live_status.split("|", 1)[-1] + ")"
+
+    return {
+        "status": "error",
+        "dn": dn_name,
+        "awb": awb,
+        "order": dn.get("shopify_order_number") or dn.get("shopify_order_id"),
+        "message": ("ALREADY DISPATCHED under {0}{1} — this Shopify order "
+                    "already shipped on a different Delivery Note. DO NOT PACK "
+                    "OR APPLY ANOTHER LABEL.").format(sib_name, detail),
+    }
 
 
 def _pieces_for_dn(dn_name):
@@ -240,6 +407,13 @@ def pack_verify_get(code, station=None):
         return {"status": "need_parcel",
                 "message": "Multi-box order — scan each parcel's AWB barcode."}
 
+    dispatched = _dispatch_hold(dn, awb)
+    if dispatched:
+        return dispatched
+    sibling_hold = _dispatched_sibling_hold(dn, awb)
+    if sibling_hold:
+        return sibling_hold
+
     prior = frappe.get_all("D2C Pack Verify", filters={"awb": awb},
                            fields=["name", "verified_at", "verified_by", "pieces_expected"],
                            limit_page_length=1)
@@ -322,6 +496,12 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
         response = hold_response(dn)
         response["awb"] = awb
         return response
+    dispatched = _dispatch_hold(dn, awb)
+    if dispatched:
+        return dispatched
+    sibling_hold = _dispatched_sibling_hold(dn, awb)
+    if sibling_hold:
+        return sibling_hold
     lines, service = _pieces_for_dn(dn_name)
     lines, parcel_error = _pieces_for_parcel(
         dn, lines, box_index, box_count, service_lines=service)

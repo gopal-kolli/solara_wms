@@ -162,24 +162,22 @@ def _channel(si):
     return "Other"
 
 
-def _lookup(reverse_awb, order_code=None, allow_additional=False):
-    reverse_awb = (reverse_awb or "").strip()
-    order_code = (order_code or "").strip()
-    if not reverse_awb:
-        return {"status": "error", "message": "Scan the reverse AWB."}
+def _snapshot_rows(expected_items):
+    item_rows = []
+    component_rows = []
+    for expected in expected_items:
+        row = dict(expected)
+        nested = row.pop("components", [])
+        row["received_qty"] = row["expected_qty"]
+        item_rows.append(row)
+        component_rows.extend({**component, "received_qty": 0, "present": 0}
+                              for component in nested)
+    return item_rows, component_rows
 
-    existing = frappe.get_all(
-        "D2C Return Parcel", filters={"reverse_awb": reverse_awb},
-        fields=["name"], limit_page_length=1)
-    if existing:
-        out = _parcel_payload(frappe.get_doc("D2C Return Parcel", existing[0].name))
-        out["status"] = "resume" if out.get("parcel_status") == "QC In Progress" else "already"
-        out["message"] = ("Resume the QC already started for this reverse AWB."
-                          if out["status"] == "resume" else
-                          "This reverse AWB has already been recorded.")
-        return out
 
-    lookup_code = order_code or reverse_awb
+def _resolved_lookup(reverse_awb, lookup_code, allow_additional=False,
+                     exclude_parcel=None):
+    """Resolve a known order/AWB without creating or mutating a parcel."""
     dn_name, forward_awb, _box_index, _box_count = _resolve(lookup_code)
     if not dn_name:
         return {
@@ -222,6 +220,8 @@ def _lookup(reverse_awb, order_code=None, allow_additional=False):
             order_by="creation desc",
             limit_page_length=20,
         )
+        if exclude_parcel:
+            open_parcels = [row for row in open_parcels if row.name != exclude_parcel]
         if open_parcels:
             result.update({
                 "status": "possible_duplicate",
@@ -232,6 +232,79 @@ def _lookup(reverse_awb, order_code=None, allow_additional=False):
                 ),
             })
     return result
+
+
+def _identify_pending(doc, order_code, allow_additional=False):
+    """Attach an Identity Pending parcel to its exact source order."""
+    out = _resolved_lookup(
+        doc.reverse_awb, order_code, allow_additional=allow_additional,
+        exclude_parcel=doc.name,
+    )
+    if out.get("status") != "ok":
+        return out
+    item_rows, component_rows = _snapshot_rows(out["items"])
+    doc.shopify_order_number = out.get("order")
+    doc.customer_name = out.get("customer_name")
+    doc.delivery_note = out["dn"]
+    doc.sales_invoice = out["sales_invoice"]
+    doc.forward_awb = out.get("forward_awb")
+    doc.lookup_code = order_code
+    doc.courier = doc.courier or out.get("courier")
+    doc.status = "QC In Progress"
+    doc.inventory_status = "Pending QC"
+    doc.finance_status = "Pending Inventory"
+    doc.credit_note_status = "Pending"
+    doc.refund_status = "Pending Verification"
+    doc.exception = 0
+    doc.identified_at = now_datetime()
+    doc.identified_by = frappe.session.user
+    doc.set("items", item_rows)
+    doc.set("components", component_rows)
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    payload = _parcel_payload(doc)
+    payload["status"] = "resolved"
+    payload["message"] = "Order identified. Review the expected contents before opening and QC."
+    return payload
+
+
+def _lookup(reverse_awb, order_code=None, allow_additional=False,
+            claim_identity=False):
+    reverse_awb = (reverse_awb or "").strip()
+    order_code = (order_code or "").strip()
+    if not reverse_awb:
+        return {"status": "error", "message": "Scan the reverse AWB."}
+
+    existing = frappe.get_all(
+        "D2C Return Parcel", filters={"reverse_awb": reverse_awb},
+        fields=["name"], limit_page_length=1)
+    if existing:
+        doc = frappe.get_doc("D2C Return Parcel", existing[0].name)
+        if doc.status == "Identity Pending":
+            if order_code:
+                if claim_identity:
+                    return _identify_pending(doc, order_code, allow_additional)
+                return _resolved_lookup(
+                    doc.reverse_awb, order_code,
+                    allow_additional=allow_additional,
+                    exclude_parcel=doc.name,
+                )
+            out = _parcel_payload(doc)
+            out["status"] = "identity_pending"
+            out["message"] = (
+                "This parcel is already in Identity Pending. Enter the exact Shopify "
+                "order number or original AWB when it is found."
+            )
+            return out
+        out = _parcel_payload(doc)
+        out["status"] = "resume" if out.get("parcel_status") == "QC In Progress" else "already"
+        out["message"] = ("Resume the QC already started for this reverse AWB."
+                          if out["status"] == "resume" else
+                          "This reverse AWB has already been recorded.")
+        return out
+
+    lookup_code = order_code or reverse_awb
+    return _resolved_lookup(reverse_awb, lookup_code, allow_additional)
 
 
 def _parcel_payload(doc):
@@ -261,6 +334,14 @@ def _parcel_payload(doc):
         "return_type": doc.return_type,
         "holding_bin": doc.holding_bin,
         "return_intake": doc.return_intake,
+        "sender_name": doc.sender_name,
+        "sender_phone": doc.sender_phone,
+        "sender_pincode": doc.sender_pincode,
+        "observed_item": doc.observed_item,
+        "observed_serial_number": doc.observed_serial_number,
+        "identity_notes": doc.identity_notes,
+        "identified_at": doc.identified_at,
+        "identified_by": doc.identified_by,
         "label_photo_url": doc.label_photo_url,
         "open_photo_url": doc.open_photo_url,
         "qc_evidence_url": doc.qc_evidence_url,
@@ -293,11 +374,122 @@ def return_lookup(reverse_awb, order_code=None):
     return _lookup(reverse_awb, order_code)
 
 
+def _clean_unidentified(reverse_awb, holding_bin, observed_item, **values):
+    cleaned = {
+        "reverse_awb": (reverse_awb or "").strip(),
+        "holding_bin": (holding_bin or "").strip(),
+        "observed_item": (observed_item or "").strip(),
+    }
+    if not cleaned["reverse_awb"]:
+        frappe.throw("Scan the reverse AWB.")
+    if not cleaned["holding_bin"]:
+        frappe.throw("Assign a physical holding bin for the unidentified parcel.")
+    if not cleaned["observed_item"]:
+        frappe.throw("Record the product, SKU or physical description found inside.")
+    for key in ("courier", "station", "sender_name", "sender_phone", "sender_pincode",
+                "observed_serial_number", "identity_notes"):
+        cleaned[key] = (values.get(key) or "").strip()
+    return cleaned
+
+
+@frappe.whitelist()
+def return_unidentified_start(reverse_awb, holding_bin, observed_item, courier=None,
+                              station=None, sender_name=None, sender_phone=None,
+                              sender_pincode=None, observed_serial_number=None,
+                              identity_notes=None):
+    """Log a physical parcel before its original order is known.
+
+    This is a memorandum/physical-control record only. It deliberately has no
+    Sales Invoice, Delivery Note, item receipt, Credit Note or refund action.
+    """
+    data = _clean_unidentified(
+        reverse_awb, holding_bin, observed_item, courier=courier, station=station,
+        sender_name=sender_name, sender_phone=sender_phone,
+        sender_pincode=sender_pincode,
+        observed_serial_number=observed_serial_number,
+        identity_notes=identity_notes,
+    )
+    existing = frappe.get_all(
+        "D2C Return Parcel", filters={"reverse_awb": data["reverse_awb"]},
+        fields=["name"], limit_page_length=1,
+    )
+    if existing:
+        doc = frappe.get_doc("D2C Return Parcel", existing[0].name)
+        payload = _parcel_payload(doc)
+        payload["status"] = ("identity_pending" if doc.status == "Identity Pending"
+                             else "already")
+        payload["message"] = ("Unidentified parcel already logged; evidence can be retried."
+                              if doc.status == "Identity Pending" else
+                              "This reverse AWB has already been recorded.")
+        return payload
+
+    doc = frappe.get_doc({
+        "doctype": "D2C Return Parcel",
+        "status": "Identity Pending",
+        "reverse_awb": data["reverse_awb"],
+        "courier": data["courier"],
+        "return_type": "Unknown",
+        "station": data["station"] or "Returns Station",
+        "holding_bin": data["holding_bin"],
+        "sender_name": data["sender_name"],
+        "sender_phone": data["sender_phone"],
+        "sender_pincode": data["sender_pincode"],
+        "observed_item": data["observed_item"],
+        "observed_serial_number": data["observed_serial_number"],
+        "identity_notes": data["identity_notes"],
+        "exception": 1,
+        "received_at": now_datetime(),
+        "received_by": frappe.session.user,
+        "inventory_status": "Exception",
+        "finance_status": "Exception",
+        "credit_note_status": "Pending",
+        "refund_status": "Pending Verification",
+    })
+    doc.flags.ignore_permissions = True
+    doc.insert(ignore_permissions=True)
+    payload = _parcel_payload(doc)
+    payload["status"] = "identity_pending"
+    payload["message"] = (
+        "Parcel logged in Identity Pending. No stock, Credit Note or refund was created."
+    )
+    return payload
+
+
+@frappe.whitelist()
+def return_unidentified_evidence(parcel, label_photo_url, open_photo_url):
+    """Attach the mandatory label and opened-contents evidence to an unknown parcel."""
+    doc = frappe.get_doc("D2C Return Parcel", parcel)
+    if doc.status != "Identity Pending":
+        frappe.throw("Evidence can only be added through this path while identity is pending.")
+    label_photo_url = (label_photo_url or "").strip()
+    open_photo_url = (open_photo_url or "").strip()
+    if not label_photo_url or not open_photo_url:
+        frappe.throw("Both the label and opened-contents photos are required.")
+    doc.label_photo_url = label_photo_url
+    doc.open_photo_url = open_photo_url
+    doc.evidence_urls = json.dumps({
+        "label_photo_url": label_photo_url,
+        "open_photo_url": open_photo_url,
+    }, sort_keys=True)
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    return {
+        "status": "identity_pending", "parcel": doc.name,
+        "message": "Evidence saved. Keep the parcel in its holding bin until identified.",
+    }
+
+
 @frappe.whitelist()
 def return_start(reverse_awb, order_code=None, return_type="Unknown", station=None,
                  holding_bin=None, additional_parcel=0):
     """Claim a physical reverse parcel for QC; idempotent by reverse AWB."""
-    out = _lookup(reverse_awb, order_code, allow_additional=cint(additional_parcel))
+    out = _lookup(
+        reverse_awb, order_code,
+        allow_additional=cint(additional_parcel), claim_identity=True,
+    )
+    if out.get("status") == "resolved":
+        out["status"] = "started"
+        return out
     if out.get("status") in ("resume", "already"):
         return out
     if out.get("status") != "ok":
@@ -305,15 +497,7 @@ def return_start(reverse_awb, order_code=None, return_type="Unknown", station=No
     if return_type not in ("Customer Return", "RTO", "Unknown"):
         return {"status": "error", "message": "Invalid return type."}
 
-    item_rows = []
-    component_rows = []
-    for expected in out["items"]:
-        row = dict(expected)
-        nested = row.pop("components", [])
-        row["received_qty"] = row["expected_qty"]
-        item_rows.append(row)
-        component_rows.extend({**component, "received_qty": 0, "present": 0}
-                              for component in nested)
+    item_rows, component_rows = _snapshot_rows(out["items"])
 
     doc = frappe.get_doc({
         "doctype": "D2C Return Parcel",
@@ -705,5 +889,6 @@ def return_exception_summary():
         "qc_in_progress": [row for row in rows if row.status == "QC In Progress"],
         "pending_hq_review": [row for row in rows if row.status == "Pending HQ Review"],
         "claims": [row for row in rows if cint(row.claim_required)],
+        "identity_pending": [row for row in rows if row.status == "Identity Pending"],
         "exceptions": [row for row in rows if cint(row.exception) or row.finance_status == "Exception"],
     }

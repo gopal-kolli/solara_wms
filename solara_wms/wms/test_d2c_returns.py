@@ -78,3 +78,25 @@ class TestReturnQcGuardrails(TestCase):
     def test_conditions_include_repairable_and_scrap(self):
         self.assertIn("Repairable", returns.CONDITIONS)
         self.assertIn("Scrap", returns.CONDITIONS)
+
+    def test_unidentified_requires_holding_bin_and_observed_product(self):
+        with patch.object(
+                returns.frappe, "throw",
+                side_effect=lambda message, *args, **kwargs: (_ for _ in ()).throw(
+                    ValueError(message))):
+            with self.assertRaisesRegex(ValueError, "holding bin"):
+                returns._clean_unidentified("REV-1", "", "Air fryer")
+            with self.assertRaisesRegex(ValueError, "product"):
+                returns._clean_unidentified("REV-1", "RET-U-01", "")
+
+    def test_unidentified_metadata_is_trimmed(self):
+        cleaned = returns._clean_unidentified(
+            " REV-1 ", " RET-U-01 ", " Air fryer ", courier=" Delhivery ",
+            sender_phone=" 4321 ", observed_serial_number=" AF-001 ",
+        )
+        self.assertEqual(cleaned["reverse_awb"], "REV-1")
+        self.assertEqual(cleaned["holding_bin"], "RET-U-01")
+        self.assertEqual(cleaned["observed_item"], "Air fryer")
+        self.assertEqual(cleaned["courier"], "Delhivery")
+        self.assertEqual(cleaned["sender_phone"], "4321")
+        self.assertEqual(cleaned["observed_serial_number"], "AF-001")

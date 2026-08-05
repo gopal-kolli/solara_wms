@@ -7,13 +7,14 @@
  "field_order": [
   "status", "reverse_awb", "courier", "return_type", "station", "holding_bin",
   "section_order", "shopify_order_number", "customer_name", "delivery_note", "sales_invoice", "forward_awb", "lookup_code",
+  "section_identity", "sender_name", "sender_phone", "sender_pincode", "observed_item", "observed_serial_number", "identity_notes", "identified_at", "identified_by",
   "section_reason", "customer_reason", "warehouse_finding", "claim_required", "exception", "notes",
   "section_items", "items", "section_components", "components",
   "section_evidence", "label_photo_url", "open_photo_url", "qc_evidence_url", "evidence_urls",
   "section_result", "return_intake", "inventory_status", "credit_note", "credit_note_status", "refund_status", "finance_status", "finance_notes", "closed_at", "received_at", "received_by", "completed_at"
  ],
  "fields": [
-  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"QC In Progress\nPending HQ Review\nException\nApproved\nRejected","default":"QC In Progress","reqd":1,"in_list_view":1},
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Identity Pending\nQC In Progress\nPending HQ Review\nException\nApproved\nRejected","default":"QC In Progress","reqd":1,"in_list_view":1},
   {"fieldname":"reverse_awb","fieldtype":"Data","label":"Reverse AWB","reqd":1,"unique":1,"in_list_view":1,
    "description":"Unique physical return parcel. Duplicate scans resume the existing record instead of creating a second receipt."},
   {"fieldname":"courier","fieldtype":"Data","label":"Courier","in_list_view":1},
@@ -25,10 +26,21 @@
   {"fieldname":"section_order","fieldtype":"Section Break","label":"Original Order"},
   {"fieldname":"shopify_order_number","fieldtype":"Data","label":"Shopify Order","in_list_view":1},
   {"fieldname":"customer_name","fieldtype":"Data","label":"Customer Name","read_only":1},
-  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Original Delivery Note","reqd":1},
-  {"fieldname":"sales_invoice","fieldtype":"Link","options":"Sales Invoice","label":"Original Sales Invoice","reqd":1},
+  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Original Delivery Note"},
+  {"fieldname":"sales_invoice","fieldtype":"Link","options":"Sales Invoice","label":"Original Sales Invoice"},
   {"fieldname":"forward_awb","fieldtype":"Data","label":"Original / Forward AWB"},
   {"fieldname":"lookup_code","fieldtype":"Data","label":"Order Lookup Used"},
+
+  {"fieldname":"section_identity","fieldtype":"Section Break","label":"Unidentified Parcel Evidence"},
+  {"fieldname":"sender_name","fieldtype":"Data","label":"Sender Name on Label"},
+  {"fieldname":"sender_phone","fieldtype":"Data","label":"Sender Phone / Last Digits"},
+  {"fieldname":"sender_pincode","fieldtype":"Data","label":"Sender Pincode"},
+  {"fieldname":"observed_item","fieldtype":"Data","label":"Observed Product / SKU",
+   "description":"What was physically found before the original order was identified."},
+  {"fieldname":"observed_serial_number","fieldtype":"Data","label":"Observed Serial Number"},
+  {"fieldname":"identity_notes","fieldtype":"Small Text","label":"Identity Investigation Notes"},
+  {"fieldname":"identified_at","fieldtype":"Datetime","label":"Identified At","read_only":1},
+  {"fieldname":"identified_by","fieldtype":"Data","label":"Identified By","read_only":1},
 
   {"fieldname":"section_reason","fieldtype":"Section Break","label":"Return Reason and Finding"},
   {"fieldname":"customer_reason","fieldtype":"Select","label":"Why It Returned","options":"\nCustomer refused\nCustomer unreachable\nAddress / delivery failure\nChanged mind\nCustomer reported defective\nCustomer reported damaged\nWrong / missing item reported\nOther"},
@@ -38,7 +50,7 @@
   {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"},
 
   {"fieldname":"section_items","fieldtype":"Section Break","label":"Expected vs Received"},
-  {"fieldname":"items","fieldtype":"Table","options":"D2C Return Parcel Item","label":"Items","reqd":1},
+  {"fieldname":"items","fieldtype":"Table","options":"D2C Return Parcel Item","label":"Items"},
   {"fieldname":"section_components","fieldtype":"Section Break","label":"Bundle Component Checklist"},
   {"fieldname":"components","fieldtype":"Table","options":"D2C Return Parcel Component","label":"Expected Packed Components",
    "description":"Every packed component must be physically counted before a complete bundle can be received automatically."},

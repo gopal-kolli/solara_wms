@@ -61,6 +61,58 @@ class TestB2BOutboundRules(TestCase):
         self.assertFalse(bulk_scan_allowed("Missing", 0, 20))
         self.assertTrue(bulk_scan_allowed("Missing", 0, 1))
 
+    def test_prepacked_appliance_bundle_stays_one_physical_carton(self):
+        combo = "SOL-AF-501-SIL-BASKET-P6-SPY-101"
+        source = SimpleNamespace(
+            items=[
+                SimpleNamespace(item_code="SOL-AF-501", qty=52),
+                SimpleNamespace(item_code=combo, qty=248),
+            ],
+            packed_items=[
+                SimpleNamespace(parent_item=combo, item_code="SOL-AF-501", qty=248),
+                SimpleNamespace(parent_item=combo, item_code="SOL-SPY-101", qty=248),
+                SimpleNamespace(parent_item=combo,
+                                item_code="SOL-AF-SIL-BASKET-P6", qty=248),
+            ],
+        )
+        masters = {
+            "SOL-AF-501": SimpleNamespace(
+                item_name="AF Oven 12L", is_stock_item=1, disabled=0,
+                qty_per_carton=1, carton_weight_kg=0, gst_hsn_code="85167990",
+                carton_length_cm=0, carton_width_cm=0, carton_height_cm=0,
+            ),
+            combo: SimpleNamespace(
+                item_name="AFO + Basket + Sprayer", is_stock_item=0, disabled=0,
+                qty_per_carton=1, carton_weight_kg=0, gst_hsn_code="85167990",
+                carton_length_cm=0, carton_width_cm=0, carton_height_cm=0,
+            ),
+        }
+        original_prekit = outbound._prekit_bundle_codes
+        original_master = outbound._item_master
+        original_ean = outbound._ean
+        outbound._prekit_bundle_codes = lambda: {combo}
+        outbound._item_master = lambda code: masters[code]
+        outbound._ean = lambda code: {
+            "SOL-AF-501": "8906162884118",
+            combo: "8906162885917",
+        }[code]
+        try:
+            rows = outbound._physical_items(source)
+        finally:
+            outbound._prekit_bundle_codes = original_prekit
+            outbound._item_master = original_master
+            outbound._ean = original_ean
+
+        self.assertEqual(sum(row["expected_qty"] for row in rows), 300)
+        self.assertEqual(projected_cartons(rows), 300)
+        self.assertEqual(
+            [(row["item_code"], row["expected_qty"], row["ean"]) for row in rows],
+            [
+                ("SOL-AF-501", 52.0, "8906162884118"),
+                (combo, 248.0, "8906162885917"),
+            ],
+        )
+
     def test_physical_barcode_must_match_an_item_on_the_po(self):
         original_get_all = getattr(outbound.frappe, "get_all", None)
         original_throw = getattr(outbound.frappe, "throw", None)

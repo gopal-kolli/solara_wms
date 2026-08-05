@@ -12,6 +12,11 @@ import math
 import frappe
 from frappe.utils import cint, flt, now_datetime
 
+from solara_wms.wms.d2c_appliance_express import (
+    DEFAULT_PREKIT_BUNDLES,
+    express_config,
+)
+
 
 CHANNELS = (
     "Amazon VC", "Flipkart VC", "Blinkit", "Swiggy", "Zepto", "Offline", "Other",
@@ -114,17 +119,39 @@ def _merge_item(out, item_code, qty):
     out[item_code] = out.get(item_code, 0) + flt(qty)
 
 
+def _prekit_bundle_codes():
+    """Use the same approved sealed-carton list as Appliance Express.
+
+    These bundle parents are non-stock sales SKUs in Atlas, but physically the
+    components are already sealed into one factory/combination carton.  B2B
+    must therefore scan the parent carton EAN once, not explode it into loose
+    component picks.
+    """
+    try:
+        return set(express_config().get("prekit_bundles") or DEFAULT_PREKIT_BUNDLES)
+    except Exception:
+        return set(DEFAULT_PREKIT_BUNDLES)
+
+
 def _physical_items(source):
     """Return stock-bearing physical items, expanding product bundles safely."""
     merged = {}
     packed_parents = set()
+    prekit_bundles = _prekit_bundle_codes()
     for row in getattr(source, "packed_items", None) or []:
+        if getattr(row, "parent_item", None) in prekit_bundles:
+            # Approved pre-kits are already one sealed physical carton.  Their
+            # Packed Item rows are accounting components, not floor picks.
+            continue
         _merge_item(merged, row.item_code, row.qty)
         if getattr(row, "parent_item", None):
             packed_parents.add(row.parent_item)
 
     for row in source.items or []:
         master = _item_master(row.item_code)
+        if row.item_code in prekit_bundles:
+            _merge_item(merged, row.item_code, row.qty)
+            continue
         if cint(master.is_stock_item):
             _merge_item(merged, row.item_code, row.qty)
             continue

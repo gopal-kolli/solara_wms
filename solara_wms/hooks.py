@@ -52,6 +52,12 @@ scheduler_events = {
             "solara_wms.wms.d2c_fulfillment.run_prepare_waves",
             "solara_wms.wms.inventory_accuracy.scheduled_inventory_reconciliation",
         ],
+        # Customer-facing Shopify fulfillment/AWB sync. This is gated by
+        # auto_fulfill_shopify AND custom_dispatched, so label creation alone
+        # can never fire a premature "shipped" notification.
+        "*/5 * * * *": [
+            "solara_wms.wms.d2c_fulfillment.sync_dispatched_shopify_fulfillments",
+        ],
         # Ops Google Sheet mirror — gated by ops_sheet_enabled; secrets in site config.
         "*/30 * * * *": [
             "solara_wms.wms.d2c_ops_sheet.push_ops_sheet",

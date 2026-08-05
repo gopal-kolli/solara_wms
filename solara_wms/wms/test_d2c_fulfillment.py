@@ -496,6 +496,80 @@ class TestRepairTracking(TestCase):
         self.assertEqual(self._run(None, ["A1", "A2", "A3"]), "failed")
 
 
+class TestDispatchGatedShopifyFulfillment(TestCase):
+    def _dn(self, **overrides):
+        values = {
+            "name": "DN-DISPATCHED",
+            "docstatus": 1,
+            "custom_d2c_defer_si": 1,
+            "custom_dispatched": 1,
+            "custom_shopify_fulfilled": 0,
+            "is_replacement": 0,
+            "shopify_order_id": "123",
+            "awb_number": "AWB-1",
+            "courier_partner": "Shadowfax",
+        }
+        values.update(overrides)
+        return frappe._dict(values)
+
+    @patch.object(fulfillment.frappe.db, "commit")
+    @patch.object(fulfillment.frappe.db, "set_value")
+    @patch.object(fulfillment, "_try_fulfill", return_value="created")
+    @patch.object(fulfillment, "_awb_courier_pairs",
+                  return_value=[("AWB-1", "Shadowfax")])
+    @patch.object(fulfillment.frappe, "get_doc")
+    @patch.object(fulfillment, "_settings",
+                  return_value={"auto_fulfill_shopify": 1})
+    def test_dispatched_dn_pushes_and_latches_only_after_confirmation(
+        self, _settings, get_doc, _pairs, try_fulfill, set_value, commit
+    ):
+        get_doc.return_value = self._dn()
+
+        outcome = fulfillment.fulfill_dispatched_dn("DN-DISPATCHED")
+
+        self.assertEqual(outcome, "created")
+        try_fulfill.assert_called_once()
+        set_value.assert_called_once_with(
+            "Delivery Note", "DN-DISPATCHED", "custom_shopify_fulfilled", 1,
+            update_modified=False,
+        )
+        commit.assert_called_once()
+
+    @patch.object(fulfillment.frappe.db, "set_value")
+    @patch.object(fulfillment, "_try_fulfill")
+    @patch.object(fulfillment.frappe, "get_doc")
+    @patch.object(fulfillment, "_settings",
+                  return_value={"auto_fulfill_shopify": 1})
+    def test_labelled_but_not_dispatched_dn_never_pushes(
+        self, _settings, get_doc, try_fulfill, set_value
+    ):
+        get_doc.return_value = self._dn(custom_dispatched=0)
+
+        outcome = fulfillment.fulfill_dispatched_dn("DN-NOT-DISPATCHED")
+
+        self.assertEqual(outcome, "skipped")
+        try_fulfill.assert_not_called()
+        set_value.assert_not_called()
+
+    @patch.object(fulfillment, "fulfill_dispatched_dn", return_value="in_sync")
+    @patch.object(fulfillment.frappe, "get_all")
+    @patch.object(fulfillment, "_settings",
+                  return_value={"auto_fulfill_shopify": 1})
+    def test_catchup_includes_billed_dispatched_dns(
+        self, _settings, get_all, fulfill_one
+    ):
+        get_all.return_value = [frappe._dict(name="DN-OLD-BILLED")]
+
+        result = fulfillment.sync_dispatched_shopify_fulfillments(days=14, limit=40)
+
+        self.assertEqual(result["synced"], 1)
+        fulfill_one.assert_called_once_with("DN-OLD-BILLED")
+        filters = get_all.call_args.kwargs["filters"]
+        self.assertEqual(filters["custom_dispatched"], 1)
+        self.assertEqual(filters["custom_shopify_fulfilled"], 0)
+        self.assertNotIn("per_billed", filters)
+
+
 class TestReprintBatchRelinks(TestCase):
     """A reprint must be a DROP-IN replacement for the batch's existing links.
 

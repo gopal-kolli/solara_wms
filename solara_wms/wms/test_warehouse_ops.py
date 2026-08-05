@@ -33,13 +33,16 @@ class TestWarehouseOpsMetrics(TestCase):
         pack = [
             {"station": "Line 1", "delivery_note": "DN-1", "awb": "A1",
              "box_count": 1, "pieces_expected": 1, "mismatch": 0,
-             "duration_sec": 30, "verified_at": now - timedelta(minutes=10)},
+             "duration_sec": 30, "verified_at": now - timedelta(minutes=10),
+             "prepare_batch": "D2CB-2026-08-02-001"},
             {"station": "Line 2", "delivery_note": "DN-2", "awb": "B1",
              "box_count": 2, "pieces_expected": 4, "mismatch": 0,
-             "duration_sec": 90, "verified_at": now - timedelta(minutes=20)},
+             "duration_sec": 90, "verified_at": now - timedelta(minutes=20),
+             "prepare_batch": "D2CB-2026-08-02-002"},
             {"station": "Line 2", "delivery_note": "DN-2", "awb": "B2",
              "box_count": 2, "pieces_expected": 2, "mismatch": 0,
-             "duration_sec": 60, "verified_at": now - timedelta(minutes=5)},
+             "duration_sec": 60, "verified_at": now - timedelta(minutes=5),
+             "prepare_batch": "D2CB-2026-08-02-002"},
         ]
 
         out = build_metrics(pack, [], [], [], [], {"Line 1": now.isoformat()},
@@ -48,11 +51,33 @@ class TestWarehouseOpsMetrics(TestCase):
         line1, line2, line3 = out["packing"]["lines"]
         self.assertEqual(line1["status"], "active")
         self.assertEqual(line1["parcels_per_hour"], 1)
+        self.assertEqual(line1["orders_last_60m"], 1)
+        self.assertEqual(line1["last_prepare_batch"], "D2CB-2026-08-02-001")
         self.assertEqual(line2["orders"], 1)
+        self.assertEqual(line2["orders_last_60m"], 1)
+        self.assertEqual(line2["parcels_last_60m"], 2)
         self.assertEqual(line2["parcels_per_hour"], 2)
         self.assertEqual(line2["pieces_per_hour"], 6)
+        self.assertEqual(line2["pieces_last_60m"], 6)
+        self.assertEqual(line2["last_prepare_batch"], "D2CB-2026-08-02-002")
         self.assertEqual(line2["avg_pieces"], 3)
         self.assertEqual(line3["status"], "offline")
+
+    def test_last_60m_orders_exclude_incomplete_multibox_work(self):
+        now = datetime(2026, 8, 2, 18, 0)
+        pack = [
+            {"station": "Line 1", "delivery_note": "DN-1", "awb": "A1",
+             "box_count": 2, "pieces_expected": 1, "mismatch": 0,
+             "verified_at": now - timedelta(minutes=5),
+             "prepare_batch": "D2CB-2026-08-02-003"},
+        ]
+
+        line = build_metrics(pack, [], [], [], [], {}, now, line_count=1)[
+            "packing"]["lines"][0]
+
+        self.assertEqual(line["parcels_last_60m"], 1)
+        self.assertEqual(line["orders_last_60m"], 0)
+        self.assertEqual(line["orders"], 0)
 
     def test_quality_returns_dispatch_and_waiting_are_kept_separate(self):
         now = datetime(2026, 8, 2, 18, 0)

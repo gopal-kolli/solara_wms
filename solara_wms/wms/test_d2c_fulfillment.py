@@ -568,6 +568,10 @@ class TestDispatchGatedShopifyFulfillment(TestCase):
         self.assertEqual(filters["custom_dispatched"], 1)
         self.assertEqual(filters["custom_shopify_fulfilled"], 0)
         self.assertNotIn("per_billed", filters)
+        self.assertEqual(
+            get_all.call_args.kwargs["order_by"],
+            "posting_date desc, creation desc",
+        )
 
 
 class TestReprintBatchRelinks(TestCase):

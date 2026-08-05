@@ -248,10 +248,15 @@ def stamp_dispatched(days=14):
         if not cint(settings.get("dispatch_stamp_enabled")):
             return {"skipped": "dispatch_stamp_enabled off"}
         start = add_days(nowdate(), -cint(days))
+        filters = {"docstatus": 1, "custom_d2c_defer_si": 1,
+                   "custom_dispatched": 0, "awb_number": ["is", "set"],
+                   "posting_date": [">=", start]}
+        if frappe.get_meta("Delivery Note").has_field(
+                "custom_shopify_cancellation_hold"):
+            filters["custom_shopify_cancellation_hold"] = 0
         dns = frappe.get_all(
             "Delivery Note",
-            filters={"docstatus": 1, "custom_d2c_defer_si": 1, "custom_dispatched": 0,
-                     "awb_number": ["is", "set"], "posting_date": [">=", start]},
+            filters=filters,
             fields=["name", "awb_number", "courier_partner"], limit_page_length=0)
         by_courier = {}
         for d in dns:

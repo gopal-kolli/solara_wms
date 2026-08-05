@@ -1272,19 +1272,27 @@ def sync_dispatched_shopify_fulfillments(days=14, limit=40):
 
         start = add_days(nowdate(), -max(cint(days), 1))
         batch_limit = min(max(cint(limit), 1), 100)
+        filters = {
+            "docstatus": 1,
+            "custom_d2c_defer_si": 1,
+            "custom_dispatched": 1,
+            "custom_shopify_fulfilled": 0,
+            "shopify_order_id": ["is", "set"],
+            "awb_number": ["is", "set"],
+            "posting_date": [">=", start],
+        }
+        if frappe.get_meta("Delivery Note").has_field(
+                "custom_shopify_cancellation_hold"):
+            filters["custom_shopify_cancellation_hold"] = 0
+
         rows = frappe.get_all(
             "Delivery Note",
-            filters={
-                "docstatus": 1,
-                "custom_d2c_defer_si": 1,
-                "custom_dispatched": 1,
-                "custom_shopify_fulfilled": 0,
-                "shopify_order_id": ["is", "set"],
-                "awb_number": ["is", "set"],
-                "posting_date": [">=", start],
-            },
+            filters=filters,
             fields=["name"],
-            order_by="posting_date asc, creation asc",
+            # Never let a historical recovery queue delay today's customer
+            # notification.  New dispatches go first; older confirmed movement
+            # continues draining behind them on every tick.
+            order_by="posting_date desc, creation desc",
             limit_page_length=batch_limit,
         )
 

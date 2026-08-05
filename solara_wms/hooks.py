@@ -28,7 +28,7 @@ fixtures = [
     {"dt": "Role", "filters": [["name", "in", ["Returns Manager", "HQ Returns Reviewer"]]]},
     {"dt": "Workflow State", "filters": [["name", "in", ["Draft", "Pending HQ Review", "Approved", "Rejected"]]]},
     {"dt": "Workflow", "filters": [["name", "in", ["Return Intake Approval"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si", "Delivery Note-custom_shopify_fulfilled", "Delivery Note-custom_awb_shortfall", "Delivery Note-custom_box_count", "Delivery Note-custom_prepare_batch", "Sales Order-custom_opd_resolution_id", "Sales Order-custom_opd_auto_fulfill", "Sales Order-custom_opd_approval_snapshot", "Sales Order-custom_opd_approval_hash", "Sales Order-custom_opd_approved_by", "Sales Order-custom_opd_approved_at", "Delivery Note-custom_opd_resolution_id", "Delivery Note-custom_opd_approval_hash", "Sales Invoice-custom_opd_resolution_id", "Sales Invoice-custom_opd_approval_hash"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Item-custom_boxes_per_unit", "Delivery Note-custom_d2c_defer_si", "Delivery Note-custom_shopify_fulfilled", "Delivery Note-custom_awb_shortfall", "Delivery Note-custom_box_count", "Delivery Note-custom_prepare_batch", "Sales Order-custom_shopify_cancellation_hold", "Sales Order-custom_shopify_cancelled_at", "Sales Order-custom_shopify_cancellation_reason", "Delivery Note-custom_shopify_cancellation_hold", "Delivery Note-custom_shopify_cancelled_at", "Delivery Note-custom_shopify_cancellation_reason", "Sales Order-custom_opd_resolution_id", "Sales Order-custom_opd_auto_fulfill", "Sales Order-custom_opd_approval_snapshot", "Sales Order-custom_opd_approval_hash", "Sales Order-custom_opd_approved_by", "Sales Order-custom_opd_approved_at", "Delivery Note-custom_opd_resolution_id", "Delivery Note-custom_opd_approval_hash", "Sales Invoice-custom_opd_resolution_id", "Sales Invoice-custom_opd_approval_hash"]]]},
 ]
 
 # Document Events
@@ -51,6 +51,12 @@ scheduler_events = {
             "solara_wms.wms.d2c_fulfillment.fetch_d2c_labels",
             "solara_wms.wms.d2c_fulfillment.run_prepare_waves",
             "solara_wms.wms.inventory_accuracy.scheduled_inventory_reconciliation",
+        ],
+        # Customer-facing Shopify fulfillment/AWB sync. This is gated by
+        # auto_fulfill_shopify AND custom_dispatched, so label creation alone
+        # can never fire a premature "shipped" notification.
+        "*/5 * * * *": [
+            "solara_wms.wms.d2c_fulfillment.sync_dispatched_shopify_fulfillments",
         ],
         # Ops Google Sheet mirror — gated by ops_sheet_enabled; secrets in site config.
         "*/30 * * * *": [

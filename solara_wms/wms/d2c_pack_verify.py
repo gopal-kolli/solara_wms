@@ -228,6 +228,14 @@ def pack_verify_get(code, station=None):
         return {"status": "not_found", "message": "No order found for: " + code}
 
     dn = frappe.get_doc("Delivery Note", dn_name)
+    from solara_wms.wms.shopify_cancellations import (
+        delivery_note_cancellation_hold,
+        hold_response,
+    )
+    if delivery_note_cancellation_hold(dn):
+        response = hold_response(dn)
+        response["awb"] = awb
+        return response
     if not awb:
         return {"status": "need_parcel",
                 "message": "Multi-box order — scan each parcel's AWB barcode."}
@@ -306,6 +314,14 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
                 "message": "Multi-box order — scan each parcel's AWB barcode."}
 
     dn = frappe.get_doc("Delivery Note", dn_name)
+    from solara_wms.wms.shopify_cancellations import (
+        delivery_note_cancellation_hold,
+        hold_response,
+    )
+    if delivery_note_cancellation_hold(dn):
+        response = hold_response(dn)
+        response["awb"] = awb
+        return response
     lines, service = _pieces_for_dn(dn_name)
     lines, parcel_error = _pieces_for_parcel(
         dn, lines, box_index, box_count, service_lines=service)

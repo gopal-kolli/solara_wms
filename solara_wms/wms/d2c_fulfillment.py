@@ -771,7 +771,10 @@ def _run_release(settings, dry_run=False, from_date=None, to_date=None):
         # submit anyway — skipping upstream avoids burning a failed submit every
         # run. Self-healing: the next Shopify sync clears custom_shopify_hold
         # and the order releases on the following run.
-        if cint(so.get("custom_shopify_hold")):
+        if (
+            cint(so.get("custom_shopify_hold"))
+            or cint(so.get("custom_shopify_cancellation_hold"))
+        ):
             res["skipped_on_hold"] += 1
             continue
 
@@ -945,10 +948,11 @@ def _fetch_d2c_labels():
 
     fields = ["name", "shipping_label", "awb_number", "courier_partner",
               "custom_d2c_defer_si", "per_billed", "shopify_order_id",
-              "custom_shopify_fulfilled", "is_replacement"]
+              "custom_shopify_fulfilled", "custom_dispatched", "is_replacement"]
     meta = frappe.get_meta("Delivery Note")
     for f in ("custom_awb_2", "custom_courier_2", "custom_box_count",
-              "custom_awb_shortfall", "custom_awb_list"):
+              "custom_awb_shortfall", "custom_awb_list",
+              "custom_shopify_cancellation_hold"):
         if meta.has_field(f):
             fields.append(f)
     has_shortfall_field = meta.has_field("custom_awb_shortfall")
@@ -994,6 +998,8 @@ def _fetch_d2c_labels():
             break
         # Each DN isolated: a per-row error must never abort the whole */15 batch.
         try:
+            if cint(dn.get("custom_shopify_cancellation_hold")):
+                continue
             # AWB GUARD: a multi-box DN must carry at least box_count AWBs before we
             # do ANYTHING (fulfill/label/invoice). If the courier minted fewer AWBs
             # than boxes, the order is a parcel short — hold it visibly, never ship.
@@ -1008,7 +1014,12 @@ def _fetch_d2c_labels():
                         dn.name, len(_awb_courier_pairs(dn)), box_count))
                 continue
             # Fulfillment first — needs only the AWB, so it never waits on the label.
-            if (do_fulfill and dn.get("shopify_order_id")
+            # Never fulfill merely because a label/AWB exists. Shopify
+            # fulfillment triggers the customer "shipped" notification, so the
+            # dispatch gate is mandatory: manual all-parcel scan or ClickPost
+            # first-movement stamp must prove the parcel left the warehouse.
+            if (do_fulfill and cint(dn.get("custom_dispatched"))
+                    and dn.get("shopify_order_id")
                     and not cint(dn.get("is_replacement"))
                     and not cint(dn.get("custom_shopify_fulfilled"))):
                 outcome = _try_fulfill(dn)
@@ -1208,6 +1219,103 @@ def _try_fulfill(dn):
     except Exception as e:
         _log("D2C Fulfill", "{0}: {1}".format(dn.get("name"), str(e)[:250]))
         return "failed"
+
+
+def fulfill_dispatched_dn(dn_name):
+    """Push one physically-dispatched DN to Shopify, idempotently.
+
+    This is the only normal gate for customer-facing Shopify fulfillment.
+    Creating an AWB or fetching a label is not dispatch evidence.  Success is
+    latched only after ``push_shopify_fulfillment`` confirms the complete
+    authoritative AWB set on Shopify.
+    """
+    settings = _settings()
+    if not cint(settings.get("auto_fulfill_shopify")):
+        return "disabled"
+
+    dn = frappe.get_doc("Delivery Note", dn_name)
+    from solara_wms.wms.shopify_cancellations import delivery_note_cancellation_hold
+    if (dn.docstatus != 1
+            or not cint(dn.get("custom_d2c_defer_si"))
+            or not cint(dn.get("custom_dispatched"))
+            or cint(dn.get("custom_shopify_fulfilled"))
+            or cint(dn.get("is_replacement"))
+            or not dn.get("shopify_order_id")
+            or not _awb_courier_pairs(dn)):
+        return "skipped"
+    if delivery_note_cancellation_hold(dn):
+        return "cancellation_hold"
+
+    outcome = _try_fulfill(dn)
+    if outcome in ("created", "updated", "repaired", "in_sync"):
+        frappe.db.set_value(
+            "Delivery Note", dn.name, "custom_shopify_fulfilled", 1,
+            update_modified=False,
+        )
+        frappe.db.commit()
+    return outcome
+
+
+@frappe.whitelist()
+def sync_dispatched_shopify_fulfillments(days=14, limit=40):
+    """Catch up dispatched DNs that have not yet reached Shopify.
+
+    Runs every five minutes and deliberately includes fully billed DNs; the
+    label-fetch job excludes ``per_billed=100`` and therefore cannot recover a
+    historical fulfillment backlog.  Bounded oldest-first processing keeps the
+    Shopify/API load predictable. Failures remain unlatched for the next tick.
+    """
+    try:
+        settings = _settings()
+        if not cint(settings.get("auto_fulfill_shopify")):
+            return {"skipped": "auto_fulfill_shopify off"}
+
+        start = add_days(nowdate(), -max(cint(days), 1))
+        batch_limit = min(max(cint(limit), 1), 100)
+        filters = {
+            "docstatus": 1,
+            "custom_d2c_defer_si": 1,
+            "custom_dispatched": 1,
+            "custom_shopify_fulfilled": 0,
+            "shopify_order_id": ["is", "set"],
+            "awb_number": ["is", "set"],
+            "posting_date": [">=", start],
+        }
+        if frappe.get_meta("Delivery Note").has_field(
+                "custom_shopify_cancellation_hold"):
+            filters["custom_shopify_cancellation_hold"] = 0
+
+        rows = frappe.get_all(
+            "Delivery Note",
+            filters=filters,
+            fields=["name"],
+            # Never let a historical recovery queue delay today's customer
+            # notification.  New dispatches go first; older confirmed movement
+            # continues draining behind them on every tick.
+            order_by="posting_date desc, creation desc",
+            limit_page_length=batch_limit,
+        )
+
+        counts = {"selected": len(rows), "synced": 0, "failed": 0,
+                  "no_open_fo": 0, "skipped": 0}
+        for row in rows:
+            outcome = fulfill_dispatched_dn(row.name)
+            if outcome in ("created", "updated", "repaired", "in_sync"):
+                counts["synced"] += 1
+            elif outcome == "no_open_fo":
+                counts["no_open_fo"] += 1
+            elif outcome == "failed":
+                counts["failed"] += 1
+            else:
+                counts["skipped"] += 1
+
+        if rows:
+            _log("D2C Dispatch Shopify Sync", json.dumps(counts, sort_keys=True))
+        return counts
+    except Exception:
+        frappe.db.rollback()
+        _log("D2C Dispatch Shopify Sync", "FATAL: " + frappe.get_traceback())
+        return {"error": True}
 
 
 def _shopify_json(r):
@@ -1619,6 +1727,8 @@ def _todays_d2c_dns(settings, on_date):
     # a parcel short.
     if frappe.get_meta("Delivery Note").has_field("custom_awb_shortfall"):
         filters["custom_awb_shortfall"] = 0
+    if frappe.get_meta("Delivery Note").has_field("custom_shopify_cancellation_hold"):
+        filters["custom_shopify_cancellation_hold"] = 0
     fields = ["name", "awb_number", "courier_partner", "customer",
               "customer_name", "shopify_order_id", "shopify_order_number",
               "shipping_label", "custom_box_count", "is_replacement"]

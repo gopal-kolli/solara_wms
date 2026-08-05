@@ -181,6 +181,45 @@ def test_item_location_is_warehouse_scoped():
     assert fields["item_code"]["reqd"] == 1
 
 
+def test_shopify_cancellation_hold_blocks_all_warehouse_exit_points():
+    release = (ROOT / "solara_wms" / "wms" / "d2c_fulfillment.py").read_text()
+    pack = (ROOT / "solara_wms" / "wms" / "d2c_pack_verify.py").read_text()
+    dispatch = (ROOT / "solara_wms" / "wms" / "d2c_dispatch.py").read_text()
+    control = (ROOT / "solara_wms" / "wms" / "shopify_cancellations.py").read_text()
+    fixtures = json.loads(
+        (ROOT / "solara_wms" / "fixtures" / "custom_field.json").read_text()
+    )
+    fixture_names = {row["name"] for row in fixtures}
+
+    assert 'so.get("custom_shopify_cancellation_hold")' in release
+    assert 'filters["custom_shopify_cancellation_hold"] = 0' in release
+    assert 'dn.get("custom_shopify_cancellation_hold")' in release
+    assert pack.count("delivery_note_cancellation_hold(dn)") >= 2
+    assert "delivery_note_cancellation_hold(dn)" in dispatch
+    assert "def apply_cancellation_hold" in control
+    assert ".cancel(" not in control
+    assert ".submit(" not in control
+    assert "frappe.db.commit()" in control
+    assert "Sales Order-custom_shopify_cancellation_hold" in fixture_names
+    assert "Delivery Note-custom_shopify_cancellation_hold" in fixture_names
+
+
+def test_shopify_cancellation_evidence_is_read_only_and_fail_closed():
+    control = (ROOT / "solara_wms" / "wms" / "shopify_cancellations.py").read_text()
+
+    assert "def cancellation_evidence" in control
+    assert 'return "MOVED_RTO"' in control
+    assert 'return "NOT_MOVED_CAN_VOID"' in control
+    assert 'return "CARRIER_REVIEW"' in control
+    # The evidence path may read documents and courier state, but must not
+    # cancel ERPNext documents or commit shipment mutations.
+    evidence_body = control.split("def cancellation_evidence", 1)[1].split(
+        "@frappe.whitelist()\ndef apply_cancellation_hold", 1
+    )[0]
+    assert ".cancel(" not in evidence_body
+    assert "frappe.db.commit" not in evidence_body
+
+
 def test_bin_codes_are_unique_within_not_across_warehouses():
     schema = json.loads((LEGACY / "warehouse_bin/warehouse_bin.json").read_text())
     fields = {field["fieldname"]: field for field in schema["fields"]}

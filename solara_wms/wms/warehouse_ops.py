@@ -126,17 +126,25 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
         for row in rows:
             order_groups[_value(row, "delivery_note") or _value(row, "awb")].append(row)
         completed_orders = 0
+        completed_order_times = []
         for order_rows in order_groups.values():
             required = max(cint(_value(r, "box_count") or 1) for r in order_rows)
-            clean_awbs = {_value(r, "awb") for r in order_rows
-                          if not cint(_value(r, "mismatch")) and _value(r, "awb")}
+            clean_rows = [r for r in order_rows
+                          if not cint(_value(r, "mismatch")) and _value(r, "awb")]
+            clean_awbs = {_value(r, "awb") for r in clean_rows}
             if len(clean_awbs) >= required:
                 completed_orders += 1
+                completion_at = max((_dt(_value(r, "verified_at")) for r in clean_rows
+                                     if _value(r, "verified_at")), default=None)
+                if completion_at:
+                    completed_order_times.append(completion_at)
         durations = [cint(_value(r, "duration_sec")) for r in rows
                      if cint(_value(r, "duration_sec")) > 0]
         pieces = sum(flt(_value(r, "pieces_expected")) for r in rows)
-        last_scan = max((_dt(_value(r, "verified_at")) for r in rows
-                         if _value(r, "verified_at")), default=None)
+        last_row = max((r for r in rows if _value(r, "verified_at")),
+                       key=lambda r: _dt(_value(r, "verified_at")), default=None)
+        last_scan = _dt(_value(last_row, "verified_at")) if last_row else None
+        last_prepare_batch = _value(last_row, "prepare_batch") if last_row else None
         heartbeat = _dt(heartbeats.get(station))
         if heartbeat and (now - heartbeat).total_seconds() <= _ACTIVE_SECONDS:
             status = "active"
@@ -149,6 +157,7 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
             "status": status,
             "heartbeat_at": _iso(heartbeat),
             "last_scan_at": _iso(last_scan),
+            "last_prepare_batch": last_prepare_batch,
             "parcels": len(rows),
             "orders": completed_orders,
             "pieces": round(pieces, 1),
@@ -157,9 +166,17 @@ def build_metrics(pack_rows, return_rows, return_items, dispatch_rows,
             "avg_pieces": round(pieces / len(rows), 1) if rows else 0,
             "issues_caught": sum(cint(_value(r, "mismatch")) for r in rows),
             "median_sec": int(median(durations)) if durations else None,
+            # Explicit rolling-window names keep the wallboard honest: these
+            # are counts in the last 60 minutes, not extrapolated rates.
+            "orders_last_60m": sum(1 for value in completed_order_times
+                                     if value >= hour_ago),
+            "parcels_last_60m": len(recent),
+            "pieces_last_60m": round(sum(flt(_value(r, "pieces_expected"))
+                                           for r in recent), 1),
+            # Backward-compatible aliases for existing dashboard clients.
             "parcels_per_hour": len(recent),
-            "orders_per_hour": len({_value(r, "delivery_note") or _value(r, "awb")
-                                     for r in recent}),
+            "orders_per_hour": sum(1 for value in completed_order_times
+                                     if value >= hour_ago),
             "pieces_per_hour": round(sum(flt(_value(r, "pieces_expected"))
                                           for r in recent), 1),
             "qc_passed": sum(1 for r in qc_by_station.get(station, [])
@@ -282,7 +299,7 @@ def warehouse_ops_summary(on_date=None, line_count=6):
     pack_rows = frappe.get_all(
         "D2C Pack Verify", filters={"verified_at": ["between", [start, end]]},
         fields=["station", "delivery_note", "awb", "box_count", "mismatch",
-                "pieces_expected", "duration_sec", "verified_at"],
+                "pieces_expected", "duration_sec", "verified_at", "prepare_batch"],
         limit_page_length=0)
     return_rows = frappe.get_all(
         "D2C Return Parcel", filters={"received_at": ["between", [start, end]]},

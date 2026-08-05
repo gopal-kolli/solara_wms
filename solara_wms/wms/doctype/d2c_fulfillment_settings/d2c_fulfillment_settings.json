@@ -96,7 +96,7 @@
    "fieldname": "auto_fulfill_shopify",
    "fieldtype": "Check",
    "label": "Auto Fulfill On Shopify",
-   "description": "Push AWB + tracking to Shopify (mark fulfilled) for the automation's deferred DNs. Replaces the broken 'Auto Sync AWB to Shopify' server script."
+   "description": "After physical dispatch is proven (all-parcel handover scan or ClickPost first movement), push the complete AWB set to Shopify and mark fulfilled. Label/AWB creation alone never triggers customer notification."
   },
   {
    "fieldname": "label_batch_size",

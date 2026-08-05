@@ -92,6 +92,12 @@ def _tracking_bucket(status):
         return "NO_DATA"
     if "cancel" in value:
         return "CANCELLED"
+    if value.startswith("bucket:"):
+        try:
+            return ("NOT_MOVED" if int(value.split("|", 1)[0].split(":", 1)[1]) <= 1
+                    else "MOVED")
+        except (TypeError, ValueError):
+            return "NO_DATA"
     if any(marker in value for marker in _NOT_MOVED):
         return "NOT_MOVED"
     return "MOVED"

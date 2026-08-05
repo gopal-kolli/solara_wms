@@ -4,6 +4,32 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from solara_wms.wms import d2c_fulfillment as fulfillment
+from solara_wms.wms import d2c_dispatch as dispatch
+from solara_wms.wms import shopify_cancellations as cancellations
+
+
+class TestClickPostMovementClassifier(TestCase):
+    def test_bucket_one_variants_are_never_dispatch(self):
+        for status in (
+            "bucket:1|pickuppending",
+            "bucket:1|outforpickup",
+            "bucket:1|awb registered",
+            "bucket:1|orderplaced",
+            "bucket:1|online shipment booked",
+        ):
+            self.assertFalse(dispatch._tracking_says_dispatched(status), status)
+            self.assertEqual(cancellations._tracking_bucket(status), "NOT_MOVED")
+
+    def test_later_clickpost_bucket_is_movement(self):
+        self.assertTrue(dispatch._tracking_says_dispatched("bucket:2|pickedup"))
+        self.assertTrue(dispatch._tracking_says_dispatched("bucket:4|delivered"))
+        self.assertEqual(
+            cancellations._tracking_bucket("bucket:2|pickedup"), "MOVED"
+        )
+
+    def test_cancelled_and_missing_are_not_dispatch(self):
+        self.assertFalse(dispatch._tracking_says_dispatched("bucket:5|cancelled"))
+        self.assertFalse(dispatch._tracking_says_dispatched(""))
 
 
 class TestPrepareWaveSlots(TestCase):

@@ -202,12 +202,15 @@ _CP_ID = {"delhivery": 4, "bluedart": 5, "shadowfax": 9, "elasticrun": 1}
 _TRACK_BATCH = 15   # ClickPost track-order rejects >15 waybills/call (HTTP 400)
 # statuses that mean the parcel has NOT yet left the warehouse (still at manifest)
 _NOT_MOVED = ("order placed", "pickup pending", "manifest", "not picked",
-              "awaiting pickup", "label generated", "pickup failed")
+              "awaiting pickup", "label generated", "pickup failed",
+              "out for pickup", "awb registered", "online shipment booked",
+              "new")
 
 
 def _cp_track(awbs, cp_id):
     """One ClickPost track-order call for up to _TRACK_BATCH same-courier AWBs.
-    Returns {awb: latest_status_text (lowercased)}. Failures/missing -> ''."""
+    Returns ``{awb: "bucket:<n>|<status>"}`` (lowercased).  ClickPost
+    bucket 1 is authoritative pre-pickup evidence. Failures/missing -> ''."""
     try:
         qs = urllib.parse.urlencode({"username": "solara", "key": _CP_TRACK_KEY,
                                      "waybill": ",".join(awbs), "cp_id": cp_id})
@@ -218,7 +221,11 @@ def _cp_track(awbs, cp_id):
         out = {}
         for a in awbs:
             ls = (res.get(a) or {}).get("latest_status") or {}
-            out[a] = (ls.get("clickpost_status_description") or ls.get("status") or "").lower()
+            text = (ls.get("clickpost_status_description")
+                    or ls.get("status") or "").lower()
+            bucket = ls.get("clickpost_status_bucket")
+            out[a] = (("bucket:{0}|".format(bucket) if bucket is not None else "")
+                      + text)
         return out
     except Exception:
         return {a: "" for a in awbs}
@@ -231,9 +238,48 @@ def _tracking_says_dispatched(status):
     s = (status or "").strip().lower()
     if not s or "cancel" in s:
         return False
+    if s.startswith("bucket:"):
+        try:
+            return int(s.split("|", 1)[0].split(":", 1)[1]) > 1
+        except (TypeError, ValueError):
+            return False
     if any(k in s for k in _NOT_MOVED):
         return False
     return True
+
+
+def _tracking_for_dns(dns):
+    """Return parcel statuses per DN, including every multi-box AWB."""
+    pending = {}
+    by_courier = {}
+    for dn in dns:
+        pairs = _awb_courier_pairs(dn)
+        pending[dn["name"]] = [(awb, "") for awb, _courier in pairs]
+        for awb, courier in pairs:
+            key = (courier or dn.get("courier_partner") or "").lower()
+            by_courier.setdefault(key, []).append((dn["name"], awb))
+
+    for courier, rows in by_courier.items():
+        cp_id = _CP_ID.get(courier, 4)
+        for i in range(0, len(rows), _TRACK_BATCH):
+            chunk = rows[i:i + _TRACK_BATCH]
+            tracked = _cp_track([awb for _dn, awb in chunk], cp_id)
+            for dn_name, awb in chunk:
+                pending[dn_name] = [
+                    (value, tracked.get(awb, "") if value == awb else status)
+                    for value, status in pending[dn_name]
+                ]
+            time.sleep(0.3)
+    return pending
+
+
+def _dispatch_query_fields():
+    fields = ["name", "awb_number", "courier_partner"]
+    meta = frappe.get_meta("Delivery Note")
+    for fieldname in ("custom_awb_2", "custom_courier_2", "custom_awb_list"):
+        if meta.has_field(fieldname):
+            fields.append(fieldname)
+    return fields
 
 
 @frappe.whitelist()
@@ -257,29 +303,76 @@ def stamp_dispatched(days=14):
         dns = frappe.get_all(
             "Delivery Note",
             filters=filters,
-            fields=["name", "awb_number", "courier_partner"], limit_page_length=0)
-        by_courier = {}
-        for d in dns:
-            by_courier.setdefault((d.get("courier_partner") or "").lower(), []).append(d)
+            fields=_dispatch_query_fields(), limit_page_length=0)
+        tracking = _tracking_for_dns(dns)
         now = now_datetime()
         stamped = 0
-        for courier, rows in by_courier.items():
-            cp_id = _CP_ID.get(courier, 4)
-            for i in range(0, len(rows), _TRACK_BATCH):
-                chunk = rows[i:i + _TRACK_BATCH]
-                status = _cp_track([r["awb_number"] for r in chunk], cp_id)
-                for r in chunk:
-                    if _tracking_says_dispatched(status.get(r["awb_number"], "")):
-                        frappe.db.set_value(
-                            "Delivery Note", r["name"],
-                            {"custom_dispatched": 1, "custom_dispatched_at": now,
-                             "custom_dispatched_by": "clickpost-track"},
-                            update_modified=False)
-                        stamped += 1
-                frappe.db.commit()
-                time.sleep(0.3)
+        for dn in dns:
+            parcels = tracking.get(dn["name"], [])
+            if parcels and all(_tracking_says_dispatched(status)
+                               for _awb, status in parcels):
+                frappe.db.set_value(
+                    "Delivery Note", dn["name"],
+                    {"custom_dispatched": 1, "custom_dispatched_at": now,
+                     "custom_dispatched_by": "clickpost-track"},
+                    update_modified=False)
+                stamped += 1
+        frappe.db.commit()
         return {"checked": len(dns), "stamped": stamped}
     except Exception:
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "D2C Dispatch Stamp failed")
         return {"error": True}
+
+
+@frappe.whitelist()
+def audit_clickpost_dispatch_stamps(posting_date=None, apply=0):
+    """Audit/reset ClickPost-derived dispatch flags against current buckets.
+
+    Manual Dispatch Scans are never touched. With ``apply=1`` this clears only
+    ClickPost-derived flags where at least one authoritative parcel is still
+    pre-pickup, cancelled, or has no tracking data. Shopify fulfilment is not
+    reversed.
+    """
+    posting_date = posting_date or nowdate()
+    dns = frappe.get_all(
+        "Delivery Note",
+        filters={
+            "docstatus": 1,
+            "posting_date": posting_date,
+            "custom_dispatched": 1,
+            "custom_dispatched_by": "clickpost-track",
+            "awb_number": ["is", "set"],
+        },
+        fields=_dispatch_query_fields(),
+        limit_page_length=0,
+    )
+    tracking = _tracking_for_dns(dns)
+    false_names = []
+    moved_names = []
+    for dn in dns:
+        parcels = tracking.get(dn["name"], [])
+        if parcels and all(_tracking_says_dispatched(status)
+                           for _awb, status in parcels):
+            moved_names.append(dn["name"])
+        else:
+            false_names.append(dn["name"])
+
+    if cint(apply):
+        for name in false_names:
+            frappe.db.set_value(
+                "Delivery Note", name,
+                {"custom_dispatched": 0, "custom_dispatched_at": None,
+                 "custom_dispatched_by": None},
+                update_modified=False,
+            )
+        frappe.db.commit()
+
+    return {
+        "posting_date": posting_date,
+        "checked": len(dns),
+        "false_stamps": len(false_names),
+        "confirmed_moved": len(moved_names),
+        "reset": len(false_names) if cint(apply) else 0,
+        "false_names": false_names[:250],
+    }

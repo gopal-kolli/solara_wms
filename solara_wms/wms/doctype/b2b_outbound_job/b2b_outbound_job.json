@@ -1,0 +1,63 @@
+{
+ "actions": [],
+ "autoname": "format:B2B-JOB-{YYYY}-{#####}",
+ "creation": "2026-08-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "job_status", "channel", "company", "customer", "platform_po", "appointment_at",
+  "source_section", "source_doctype", "source_document", "sales_order", "delivery_note", "sales_invoice",
+  "quantity_section", "expected_units", "packed_units", "expected_cartons", "closed_cartons", "loaded_cartons", "items",
+  "loading_section", "vehicle_number", "lr_number",
+  "audit_section", "released_at", "released_by", "pack_started_at", "pack_completed_at", "load_started_at", "load_completed_at", "notes"
+ ],
+ "fields": [
+  {"fieldname":"job_status","fieldtype":"Select","label":"Status","options":"Released\nPacking\nPack Complete\nLoading\nLoaded\nException\nCancelled","default":"Released","reqd":1,"in_list_view":1},
+  {"fieldname":"channel","fieldtype":"Select","label":"Channel","options":"Amazon VC\nFlipkart VC\nBlinkit\nSwiggy\nZepto\nOffline\nOther","reqd":1,"in_list_view":1},
+  {"fieldname":"company","fieldtype":"Link","options":"Company","label":"Company","reqd":1},
+  {"fieldname":"customer","fieldtype":"Link","options":"Customer","label":"Customer / Platform","in_list_view":1},
+  {"fieldname":"platform_po","fieldtype":"Data","label":"Platform PO","in_list_view":1},
+  {"fieldname":"appointment_at","fieldtype":"Datetime","label":"Appointment / Required By"},
+
+  {"fieldname":"source_section","fieldtype":"Section Break","label":"Atlas Source"},
+  {"fieldname":"source_doctype","fieldtype":"Data","label":"Source DocType","reqd":1,"read_only":1},
+  {"fieldname":"source_document","fieldtype":"Dynamic Link","options":"source_doctype","label":"Source Document","reqd":1,"unique":1,"in_list_view":1},
+  {"fieldname":"sales_order","fieldtype":"Link","options":"Sales Order","label":"Sales Order","read_only":1},
+  {"fieldname":"delivery_note","fieldtype":"Link","options":"Delivery Note","label":"Delivery Note","read_only":1},
+  {"fieldname":"sales_invoice","fieldtype":"Link","options":"Sales Invoice","label":"Sales Invoice","read_only":1},
+
+  {"fieldname":"quantity_section","fieldtype":"Section Break","label":"Packing Progress"},
+  {"fieldname":"expected_units","fieldtype":"Float","label":"Expected Units","read_only":1},
+  {"fieldname":"packed_units","fieldtype":"Float","label":"Packed Units","default":"0","read_only":1},
+  {"fieldname":"expected_cartons","fieldtype":"Int","label":"Projected Cartons","default":"0","read_only":1},
+  {"fieldname":"closed_cartons","fieldtype":"Int","label":"Closed Cartons","default":"0","read_only":1},
+  {"fieldname":"loaded_cartons","fieldtype":"Int","label":"Loaded Cartons","default":"0","read_only":1},
+  {"fieldname":"items","fieldtype":"Table","options":"B2B Outbound Job Item","label":"Items","reqd":1},
+
+  {"fieldname":"loading_section","fieldtype":"Section Break","label":"Truck Loading"},
+  {"fieldname":"vehicle_number","fieldtype":"Data","label":"Vehicle Number"},
+  {"fieldname":"lr_number","fieldtype":"Data","label":"LR / Gate Pass"},
+
+  {"fieldname":"audit_section","fieldtype":"Section Break","label":"Audit Trail"},
+  {"fieldname":"released_at","fieldtype":"Datetime","label":"Released At","read_only":1},
+  {"fieldname":"released_by","fieldtype":"Data","label":"Released By","read_only":1},
+  {"fieldname":"pack_started_at","fieldtype":"Datetime","label":"Packing Started","read_only":1},
+  {"fieldname":"pack_completed_at","fieldtype":"Datetime","label":"Packing Completed","read_only":1},
+  {"fieldname":"load_started_at","fieldtype":"Datetime","label":"Loading Started","read_only":1},
+  {"fieldname":"load_completed_at","fieldtype":"Datetime","label":"Loading Completed","read_only":1},
+  {"fieldname":"notes","fieldtype":"Small Text","label":"Notes"}
+ ],
+ "index_web_pages_for_search": 0,
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WMS",
+ "name": "B2B Outbound Job",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"print":1,"read":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"read":1,"role":"Warehouse Manager","write":1}
+ ],
+ "sort_field":"creation",
+ "sort_order":"DESC",
+ "track_changes":1
+}

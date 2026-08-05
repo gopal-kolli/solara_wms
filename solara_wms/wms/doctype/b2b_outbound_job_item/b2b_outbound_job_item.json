@@ -1,0 +1,27 @@
+{
+ "doctype":"DocType",
+ "istable":1,
+ "editable_grid":1,
+ "engine":"InnoDB",
+ "field_order":["item_code","item_name","ean","expected_qty","packed_qty","qty_per_carton","carton_data_status","carton_length_cm","carton_width_cm","carton_height_cm","carton_weight_kg"],
+ "fields":[
+  {"fieldname":"item_code","fieldtype":"Link","options":"Item","label":"Item Code","reqd":1,"in_list_view":1},
+  {"fieldname":"item_name","fieldtype":"Data","label":"Item Name","read_only":1},
+  {"fieldname":"ean","fieldtype":"Data","label":"EAN","read_only":1},
+  {"fieldname":"expected_qty","fieldtype":"Float","label":"Expected","reqd":1,"in_list_view":1},
+  {"fieldname":"packed_qty","fieldtype":"Float","label":"Packed","default":"0","read_only":1,"in_list_view":1},
+  {"fieldname":"qty_per_carton","fieldtype":"Int","label":"Atlas Qty / Carton","read_only":1},
+  {"fieldname":"carton_data_status","fieldtype":"Select","label":"Carton Data","options":"Atlas\nDirect Carton\nMissing\nSuspicious","read_only":1,"in_list_view":1},
+  {"fieldname":"carton_length_cm","fieldtype":"Float","label":"Carton L (cm)","read_only":1},
+  {"fieldname":"carton_width_cm","fieldtype":"Float","label":"Carton W (cm)","read_only":1},
+  {"fieldname":"carton_height_cm","fieldtype":"Float","label":"Carton H (cm)","read_only":1},
+  {"fieldname":"carton_weight_kg","fieldtype":"Float","label":"Carton Weight (kg)","read_only":1}
+ ],
+ "index_web_pages_for_search":0,
+ "modified":"2026-08-05 00:00:00.000000",
+ "modified_by":"Administrator",
+ "module":"WMS",
+ "name":"B2B Outbound Job Item",
+ "owner":"Administrator",
+ "permissions":[]
+}

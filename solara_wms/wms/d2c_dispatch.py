@@ -119,6 +119,16 @@ def scan_dispatch(code):
         return {"status": "need_parcel",
                 "message": "Multi-box order — scan each parcel's AWB barcode (not the order barcode)."}
 
+    dn = frappe.get_doc("Delivery Note", dn_name)
+    from solara_wms.wms.shopify_cancellations import (
+        delivery_note_cancellation_hold,
+        hold_response,
+    )
+    if delivery_note_cancellation_hold(dn):
+        response = hold_response(dn)
+        response["awb"] = awb
+        return response
+
     dup = frappe.get_all("D2C Dispatch Scan", filters={"awb": awb},
                          fields=["scanned_at", "scanned_by", "shopify_order_number"],
                          limit_page_length=1)
@@ -140,7 +150,6 @@ def scan_dispatch(code):
             "message": handoff["message"],
         }
 
-    dn = frappe.get_doc("Delivery Note", dn_name)
     now = now_datetime()
     scan = frappe.get_doc({
         "doctype": "D2C Dispatch Scan", "awb": awb, "delivery_note": dn_name,

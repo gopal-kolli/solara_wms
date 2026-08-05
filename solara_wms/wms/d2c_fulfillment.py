@@ -771,7 +771,10 @@ def _run_release(settings, dry_run=False, from_date=None, to_date=None):
         # submit anyway — skipping upstream avoids burning a failed submit every
         # run. Self-healing: the next Shopify sync clears custom_shopify_hold
         # and the order releases on the following run.
-        if cint(so.get("custom_shopify_hold")):
+        if (
+            cint(so.get("custom_shopify_hold"))
+            or cint(so.get("custom_shopify_cancellation_hold"))
+        ):
             res["skipped_on_hold"] += 1
             continue
 
@@ -948,7 +951,8 @@ def _fetch_d2c_labels():
               "custom_shopify_fulfilled", "custom_dispatched", "is_replacement"]
     meta = frappe.get_meta("Delivery Note")
     for f in ("custom_awb_2", "custom_courier_2", "custom_box_count",
-              "custom_awb_shortfall", "custom_awb_list"):
+              "custom_awb_shortfall", "custom_awb_list",
+              "custom_shopify_cancellation_hold"):
         if meta.has_field(f):
             fields.append(f)
     has_shortfall_field = meta.has_field("custom_awb_shortfall")
@@ -994,6 +998,8 @@ def _fetch_d2c_labels():
             break
         # Each DN isolated: a per-row error must never abort the whole */15 batch.
         try:
+            if cint(dn.get("custom_shopify_cancellation_hold")):
+                continue
             # AWB GUARD: a multi-box DN must carry at least box_count AWBs before we
             # do ANYTHING (fulfill/label/invoice). If the courier minted fewer AWBs
             # than boxes, the order is a parcel short — hold it visibly, never ship.
@@ -1228,6 +1234,7 @@ def fulfill_dispatched_dn(dn_name):
         return "disabled"
 
     dn = frappe.get_doc("Delivery Note", dn_name)
+    from solara_wms.wms.shopify_cancellations import delivery_note_cancellation_hold
     if (dn.docstatus != 1
             or not cint(dn.get("custom_d2c_defer_si"))
             or not cint(dn.get("custom_dispatched"))
@@ -1236,6 +1243,8 @@ def fulfill_dispatched_dn(dn_name):
             or not dn.get("shopify_order_id")
             or not _awb_courier_pairs(dn)):
         return "skipped"
+    if delivery_note_cancellation_hold(dn):
+        return "cancellation_hold"
 
     outcome = _try_fulfill(dn)
     if outcome in ("created", "updated", "repaired", "in_sync"):
@@ -1710,6 +1719,8 @@ def _todays_d2c_dns(settings, on_date):
     # a parcel short.
     if frappe.get_meta("Delivery Note").has_field("custom_awb_shortfall"):
         filters["custom_awb_shortfall"] = 0
+    if frappe.get_meta("Delivery Note").has_field("custom_shopify_cancellation_hold"):
+        filters["custom_shopify_cancellation_hold"] = 0
     fields = ["name", "awb_number", "courier_partner", "customer",
               "customer_name", "shopify_order_id", "shopify_order_number",
               "shipping_label", "custom_box_count", "is_replacement"]

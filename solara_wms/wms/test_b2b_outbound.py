@@ -136,6 +136,46 @@ class TestB2BOutboundRules(TestCase):
             else:
                 outbound.frappe.throw = original_throw
 
+    def test_plan_expands_case_packs_with_remainder(self):
+        rows = outbound.plan_carton_rows([
+            {"item_code": "SOL-INS-1", "ean": "890001", "expected_qty": 25,
+             "qty_per_carton": 12, "carton_data_status": "Atlas"},
+            {"item_code": "SOL-AF-124", "ean": "890002", "expected_qty": 3,
+             "qty_per_carton": 1, "carton_data_status": "Direct Carton"},
+        ], prekit_bundles=set())
+        self.assertEqual(rows, [
+            ("SOL-INS-1", 12.0), ("SOL-INS-1", 12.0), ("SOL-INS-1", 1.0),
+            ("SOL-AF-124", 1.0), ("SOL-AF-124", 1.0), ("SOL-AF-124", 1.0),
+        ])
+
+    def test_plan_treats_prekit_as_one_sealed_carton_per_unit(self):
+        combo = "SOL-AF-501-SIL-BASKET-P6-SPY-101"
+        rows = outbound.plan_carton_rows([
+            {"item_code": combo, "ean": "8906162885917", "expected_qty": 3,
+             "qty_per_carton": 0, "carton_data_status": "Missing"},
+        ], prekit_bundles={combo})
+        self.assertEqual(rows, [(combo, 1.0)] * 3)
+
+    def test_plan_refuses_missing_ean_and_bad_carton_data(self):
+        original_throw = getattr(outbound.frappe, "throw", None)
+        outbound.frappe.throw = lambda message: (_ for _ in ()).throw(ValueError(message))
+        try:
+            with self.assertRaisesRegex(ValueError, "no EAN barcode"):
+                outbound.plan_carton_rows([
+                    {"item_code": "SOL-X", "ean": "", "expected_qty": 5,
+                     "qty_per_carton": 5, "carton_data_status": "Atlas"},
+                ], prekit_bundles=set())
+            with self.assertRaisesRegex(ValueError, "Suspicious"):
+                outbound.plan_carton_rows([
+                    {"item_code": "SOL-Y", "ean": "890003", "expected_qty": 5,
+                     "qty_per_carton": 1, "carton_data_status": "Suspicious"},
+                ], prekit_bundles=set())
+        finally:
+            if original_throw is None:
+                delattr(outbound.frappe, "throw")
+            else:
+                outbound.frappe.throw = original_throw
+
     def test_item_code_is_not_accepted_as_physical_scan_evidence(self):
         original_get_all = getattr(outbound.frappe, "get_all", None)
         original_throw = getattr(outbound.frappe, "throw", None)

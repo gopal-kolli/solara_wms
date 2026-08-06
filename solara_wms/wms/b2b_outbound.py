@@ -88,6 +88,42 @@ def bulk_scan_allowed(data_status, qty_per_carton, scanned_qty):
              abs(amount - cint(qty_per_carton)) <= 0.001))
 
 
+def plan_carton_rows(items, prekit_bundles=None):
+    """Expand job items into one (item_code, qty) row per physical carton.
+
+    Pre-registration refuses to plan on untrustworthy data: every item needs a
+    scannable EAN and a verified case pack.  Approved pre-kits are one sealed
+    carton per unit regardless of their (non-stock) Item master carton fields.
+    """
+    prekits = prekit_bundles if prekit_bundles is not None else _prekit_bundle_codes()
+    rows = []
+    for row in items:
+        item_code = row.get("item_code")
+        if not row.get("ean"):
+            frappe.throw(
+                "Cannot pre-register cartons: {0} has no EAN barcode in Atlas. "
+                "Add an Item Barcode row first.".format(item_code)
+            )
+        if item_code in prekits:
+            case_qty = 1
+        else:
+            case_qty = cint(row.get("qty_per_carton"))
+            if case_qty <= 0 or row.get("carton_data_status") in ("Missing", "Suspicious"):
+                frappe.throw(
+                    "Cannot pre-register cartons: {0} has {1} carton data "
+                    "(qty_per_carton={2}). Correct the Item master first.".format(
+                        item_code, row.get("carton_data_status") or "unusable",
+                        cint(row.get("qty_per_carton")))
+                )
+        expected = flt(row.get("expected_qty"))
+        full = int(expected // case_qty)
+        remainder = expected - full * case_qty
+        rows.extend([(item_code, float(case_qty))] * full)
+        if remainder > 0.001:
+            rows.append((item_code, remainder))
+    return rows
+
+
 def _company():
     return (frappe.defaults.get_user_default("company") or
             "Win The Buy Box Private Limited")
@@ -251,6 +287,8 @@ def _unit_payload(unit):
         "job": unit.job,
         "sequence": cint(unit.sequence),
         "status": unit.status,
+        "planned_item_code": getattr(unit, "planned_item_code", None),
+        "planned_qty": flt(getattr(unit, "planned_qty", 0)),
         "platform_carton_code": unit.platform_carton_code,
         "photo_url": unit.photo_url,
         "closed_at": unit.closed_at,
@@ -404,10 +442,93 @@ def b2b_job_start(reference, channel=None, platform_po=None, appointment_at=None
 
 
 @frappe.whitelist()
+def b2b_plan_cartons(reference):
+    """Pre-register every carton of a shipment at SI time (label-first flow).
+
+    Creates the job (or adopts a fresh one) plus one Planned handling unit per
+    physical carton, so all SOLARA QR labels can be printed BEFORE floor work.
+    Refuses when master data cannot support a trustworthy plan, or when the
+    job has already produced cartons.
+    """
+    started = b2b_job_start(reference)
+    job = frappe.get_doc("B2B Outbound Job", started["job"])
+    if job.job_status != "Released":
+        frappe.throw("Cartons can only be pre-registered before packing starts "
+                     "(job is {0}).".format(job.job_status))
+    if frappe.db.count("B2B Handling Unit", {"job": job.name}):
+        frappe.throw("This job already has cartons. Pre-registration must run "
+                     "before any carton is opened.")
+    rows = plan_carton_rows([{
+        "item_code": r.item_code, "ean": r.ean,
+        "expected_qty": r.expected_qty, "qty_per_carton": r.qty_per_carton,
+        "carton_data_status": r.carton_data_status,
+    } for r in job.items or []])
+    for sequence, (item_code, qty) in enumerate(rows, start=1):
+        unit = frappe.get_doc({
+            "doctype": "B2B Handling Unit",
+            "job": job.name,
+            "sequence": sequence,
+            "status": "Planned",
+            "planned_item_code": item_code,
+            "planned_qty": qty,
+        })
+        unit.flags.ignore_permissions = True
+        unit.insert(ignore_permissions=True)
+    job.expected_cartons = len(rows)
+    job.flags.ignore_permissions = True
+    job.save(ignore_permissions=True)
+    out = _job_payload(job)
+    out.update({"status": "planned", "planned_cartons": len(rows)})
+    return out
+
+
+@frappe.whitelist()
+def b2b_carton_select(code):
+    """Floor step 1 of the label-first flow: scan a pre-printed carton QR.
+
+    Marks the Planned unit Open so the next EAN scan verifies contents into
+    exactly this carton.  Scanning an already-open unit resumes it.
+    """
+    unit = _handling_unit_from_code(code)
+    if not unit:
+        return {"status": "not_found", "message": "Unknown SOLARA B2B carton ID."}
+    if unit.status == "Open":
+        out = _unit_payload(unit)
+        out["status"] = "resume"
+        return out
+    if unit.status != "Planned":
+        return {"status": "blocked",
+                "message": "STOP: carton is {0}; only a planned or open carton "
+                           "can be selected.".format(unit.status)}
+    job = frappe.get_doc("B2B Outbound Job", unit.job)
+    if job.job_status not in ("Released", "Packing"):
+        return {"status": "error", "message": "This job is not open for packing."}
+    unit.status = "Open"
+    unit.opened_at = now_datetime()
+    unit.opened_by = frappe.session.user
+    unit.flags.ignore_permissions = True
+    unit.save(ignore_permissions=True)
+    if job.job_status == "Released":
+        job.job_status = "Packing"
+        job.pack_started_at = job.pack_started_at or now_datetime()
+        job.flags.ignore_permissions = True
+        job.save(ignore_permissions=True)
+    out = _unit_payload(unit)
+    out["status"] = "selected"
+    return out
+
+
+@frappe.whitelist()
 def b2b_carton_open(job, platform_carton_code=None):
     doc = frappe.get_doc("B2B Outbound Job", job)
     if doc.job_status not in ("Released", "Packing"):
         return {"status": "error", "message": "This job is not open for packing."}
+    if frappe.db.count("B2B Handling Unit", {"job": doc.name, "status": "Planned"}):
+        return {
+            "status": "error",
+            "message": "This job uses pre-printed carton labels. Scan the "
+                       "carton's SOLARA QR label instead of opening a new carton.",
+        }
     open_units = frappe.get_all(
         "B2B Handling Unit", filters={"job": doc.name, "status": "Open"},
         fields=["name"], limit_page_length=2,
@@ -477,6 +598,15 @@ def b2b_carton_scan(job, handling_unit, code, qty=1):
     if amount <= 0:
         frappe.throw("Quantity must be above zero.")
     planned = _match_job_item(job_doc, code)
+    planned_item = _normalise(getattr(unit, "planned_item_code", None))
+    planned_qty = flt(getattr(unit, "planned_qty", 0))
+    if planned_item and planned.item_code != planned_item:
+        return {
+            "status": "wrong_carton",
+            "message": "STOP: this carton label is pre-registered for {0}, not {1}. "
+                       "Hold both cartons and call the supervisor.".format(
+                           planned_item, planned.item_code),
+        }
     if unit.items and any(row.item_code != planned.item_code for row in unit.items):
         return {
             "status": "wrong_carton",
@@ -484,7 +614,8 @@ def b2b_carton_scan(job, handling_unit, code, qty=1):
         }
     if amount > 1:
         case_qty = cint(planned.qty_per_carton)
-        if not bulk_scan_allowed(planned.carton_data_status, case_qty, amount):
+        plan_bulk_ok = planned_item and planned_qty and abs(amount - planned_qty) <= 0.001
+        if not plan_bulk_ok and not bulk_scan_allowed(planned.carton_data_status, case_qty, amount):
             return {
                 "status": "case_qty_blocked",
                 "message": (
@@ -514,6 +645,16 @@ def b2b_carton_scan(job, handling_unit, code, qty=1):
     unit.save(ignore_permissions=True)
     job_doc.flags.ignore_permissions = True
     job_doc.save(ignore_permissions=True)
+
+    # Label-first cartons close themselves the moment their plan is fulfilled:
+    # the label is already applied, so there is nothing left for the packer to do.
+    auto_closed = False
+    if planned_item and planned_qty:
+        carton_total = sum(flt(row.qty) for row in unit.items or [])
+        if carton_total + 0.001 >= planned_qty:
+            job_doc = _finalise_close(unit)
+            auto_closed = True
+
     return {
         "status": "ok",
         "item_code": planned.item_code,
@@ -522,6 +663,8 @@ def b2b_carton_scan(job, handling_unit, code, qty=1):
         "item_packed_qty": flt(planned.packed_qty),
         "item_expected_qty": flt(planned.expected_qty),
         "carton": _unit_payload(unit),
+        "auto_closed": auto_closed,
+        "job_status": job_doc.job_status,
         "job_packed_units": flt(job_doc.packed_units),
         "job_expected_units": flt(job_doc.expected_units),
     }
@@ -559,19 +702,9 @@ def b2b_carton_remove(job, handling_unit, item_code, qty=1):
     }
 
 
-@frappe.whitelist()
-def b2b_carton_close(handling_unit, platform_carton_code=None, photo_url=None):
-    unit = frappe.get_doc("B2B Handling Unit", handling_unit)
-    if unit.status == "Closed":
-        out = _unit_payload(unit)
-        out["status"] = "already"
-        return out
-    if unit.status != "Open":
-        return {"status": "error", "message": "Only an open carton can be closed."}
-    if not unit.items:
-        return {"status": "error", "message": "Scan at least one item before closing."}
+def _finalise_close(unit, platform_carton_code=None, photo_url=None):
     unit.platform_carton_code = _normalise(platform_carton_code) or unit.platform_carton_code
-    unit.photo_url = _normalise(photo_url)
+    unit.photo_url = _normalise(photo_url) or unit.photo_url
     unit.status = "Closed"
     unit.closed_at = now_datetime()
     unit.closed_by = frappe.session.user
@@ -588,12 +721,29 @@ def b2b_carton_close(handling_unit, platform_carton_code=None, photo_url=None):
         job.pack_completed_at = now_datetime()
     job.flags.ignore_permissions = True
     job.save(ignore_permissions=True)
+    return job
+
+
+@frappe.whitelist()
+def b2b_carton_close(handling_unit, platform_carton_code=None, photo_url=None):
+    unit = frappe.get_doc("B2B Handling Unit", handling_unit)
+    if unit.status == "Closed":
+        out = _unit_payload(unit)
+        out["status"] = "already"
+        return out
+    if unit.status != "Open":
+        return {"status": "error", "message": "Only an open carton can be closed."}
+    if not unit.items:
+        return {"status": "error", "message": "Scan at least one item before closing."}
+    prelabelled = bool(getattr(unit, "planned_item_code", None))
+    job = _finalise_close(unit, platform_carton_code, photo_url)
     out = _unit_payload(unit)
     out.update({
         "status": "closed",
         "job_status": job.job_status,
         "closed_cartons": cint(job.closed_cartons),
-        "message": "Carton closed. Print and apply the SOLARA internal QR label.",
+        "message": ("Carton closed. Label was pre-applied." if prelabelled else
+                    "Carton closed. Print and apply the SOLARA internal QR label."),
     })
     return out
 

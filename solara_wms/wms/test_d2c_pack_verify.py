@@ -2,6 +2,8 @@ import json
 from unittest import TestCase
 from unittest.mock import patch
 
+import frappe
+
 from solara_wms.wms import d2c_pack_verify as pack_verify
 
 
@@ -224,6 +226,48 @@ class TestParcelPieceResolution(TestCase):
 
         self.assertEqual(result['status'], 'error')
         self.assertIn('photo', result['message'].lower())
+
+
+class TestPriorVerifyHold(TestCase):
+
+    @patch.object(pack_verify.frappe, "get_all", return_value=[])
+    def test_unverified_parcel_is_not_held(self, _get_all):
+        dn = _Doc(shopify_order_number="SOL-FRESH")
+        self.assertIsNone(pack_verify._prior_verify_hold(dn, "AWB-FRESH"))
+
+    @patch.object(
+        pack_verify.frappe,
+        "get_all",
+        return_value=[frappe._dict(
+            name="PACKV-1", verified_at="2026-08-06 12:28:00",
+            verified_by="atlas-automation@solara.in")],
+    )
+    def test_verified_parcel_is_hard_blocked(self, get_all):
+        dn = _Doc(shopify_order_number="SOL1242643")
+
+        result = pack_verify._prior_verify_hold(dn, "AWB-DUP")
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["order"], "SOL1242643")
+        self.assertIn("ALREADY PACK-VERIFIED 2026-08-06 12:28", result["message"])
+        self.assertIn("DO NOT REPACK", result["message"])
+        self.assertIn("atlas-automation@solara.in", result["message"])
+        get_all.assert_called_once()
+        self.assertEqual(get_all.call_args.kwargs["filters"], {"awb": "AWB-DUP"})
+
+    @patch.object(
+        pack_verify.frappe,
+        "get_all",
+        return_value=[frappe._dict(name="PACKV-2", verified_at=None,
+                                   verified_by=None)],
+    )
+    def test_hold_survives_missing_audit_fields(self, _get_all):
+        dn = _Doc(shopify_order_id="7001")
+
+        result = pack_verify._prior_verify_hold(dn, "AWB-BARE")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("DO NOT REPACK", result["message"])
 
 
 class TestSiblingDispatchHold(TestCase):

@@ -201,6 +201,28 @@ def _dispatched_sibling_hold(dn, awb):
     }
 
 
+def _prior_verify_hold(dn, awb):
+    """Hard stop once a parcel is already pack-verified.
+
+    A second pass at the bench means either a duplicate parcel or an
+    unauthorised repack — both go to the line lead, never back into the
+    packing flow (repacking a verified box invalidates its photo evidence).
+    Genuine re-verify (e.g. after a QC fail is fixed): the line lead has the
+    D2C Pack Verify record deleted in Atlas first, then the parcel scans
+    fresh."""
+    prior = frappe.get_all("D2C Pack Verify", filters={"awb": awb},
+                           fields=["name", "verified_at", "verified_by"],
+                           limit_page_length=1)
+    if not prior:
+        return None
+    p = prior[0]
+    return {"status": "error", "awb": awb,
+            "order": dn.get("shopify_order_number") or dn.get("shopify_order_id"),
+            "message": ("ALREADY PACK-VERIFIED " + str(p.verified_at)[:16]
+                        + " by " + (p.verified_by or "?")
+                        + " — DO NOT REPACK. Hand this parcel to the line lead.")}
+
+
 def _pieces_for_dn(dn_name):
     """The physical pieces that must go in the box, bundle-exploded — the same
     data Section B of the pick list prints, so screen and paper can never
@@ -413,10 +435,11 @@ def pack_verify_get(code, station=None):
     sibling_hold = _dispatched_sibling_hold(dn, awb)
     if sibling_hold:
         return sibling_hold
+    verified = _prior_verify_hold(dn, awb)
+    if verified:
+        verified["dn"] = dn_name
+        return verified
 
-    prior = frappe.get_all("D2C Pack Verify", filters={"awb": awb},
-                           fields=["name", "verified_at", "verified_by", "pieces_expected"],
-                           limit_page_length=1)
     lines, service = _pieces_for_dn(dn_name)
     lines, parcel_error = _pieces_for_parcel(
         dn, lines, box_index, box_count, service_lines=service)
@@ -430,7 +453,7 @@ def pack_verify_get(code, station=None):
     total = sum(l["qty"] for l in lines)
     pairs = _awb_courier_pairs(dn)
     out = {
-        "status": "already" if prior else "ok",
+        "status": "ok",
         "dn": dn_name,
         "awb": awb,
         "order": dn.get("shopify_order_number") or dn.get("shopify_order_id"),
@@ -445,17 +468,12 @@ def pack_verify_get(code, station=None):
     }
     from solara_wms.wms.pack_handoff import pack_handoff_status
     out.update(pack_handoff_status(dn, awb, lines))
-    if not prior:
-        try:
-            from solara_wms.wms.d2c_pack_qc import qc_state
-            out.update(qc_state(awb, lines, station=(station or "").strip()))
-        except Exception:
-            _log("D2C Pack QC", "selection failed (pack continues)\n" + frappe.get_traceback())
-            out.update({"qc_required": False, "qc_staged": False})
-    if prior:
-        p = prior[0]
-        out["message"] = ("ALREADY PACK-VERIFIED " + str(p.verified_at)[:16]
-                          + " by " + (p.verified_by or "?"))
+    try:
+        from solara_wms.wms.d2c_pack_qc import qc_state
+        out.update(qc_state(awb, lines, station=(station or "").strip()))
+    except Exception:
+        _log("D2C Pack QC", "selection failed (pack continues)\n" + frappe.get_traceback())
+        out.update({"qc_required": False, "qc_staged": False})
     return out
 
 
@@ -502,6 +520,10 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
     sibling_hold = _dispatched_sibling_hold(dn, awb)
     if sibling_hold:
         return sibling_hold
+    verified = _prior_verify_hold(dn, awb)
+    if verified:
+        verified["dn"] = dn_name
+        return verified
     lines, service = _pieces_for_dn(dn_name)
     lines, parcel_error = _pieces_for_parcel(
         dn, lines, box_index, box_count, service_lines=service)
@@ -510,13 +532,6 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
     expected = sum(l["qty"] for l in lines)
     confirmed = flt(pieces_confirmed) if pieces_confirmed is not None else expected
     mismatch = 1 if abs(confirmed - expected) > 0.001 else 0
-
-    existing = frappe.get_all("D2C Pack Verify", filters={"awb": awb},
-                              fields=["name"], limit_page_length=1)
-    if existing:
-        return {"status": "already", "dn": dn_name,
-                "order": dn.get("shopify_order_number"),
-                "message": "Already pack-verified — no second record created."}
 
     from solara_wms.wms.pack_handoff import (
         consume_pack_handoff,

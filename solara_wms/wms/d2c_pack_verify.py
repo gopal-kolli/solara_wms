@@ -25,10 +25,12 @@ from frappe.utils import cint, flt, getdate, now_datetime, nowdate
 
 from solara_wms.wms.d2c_dispatch import (
     _CP_ID,
+    _cancelled_dn_lookup,
     _cp_track,
     _resolve,
     _tracking_for_dns,
     _tracking_says_dispatched,
+    cancelled_hold_response,
 )
 from solara_wms.wms.d2c_fulfillment import _awb_courier_pairs, _enrich_physical_lines
 
@@ -414,6 +416,9 @@ def pack_verify_get(code, station=None):
 
     dn_name, awb, box_index, box_count = _resolve(code)
     if not dn_name:
+        cancelled = _cancelled_dn_lookup(code)
+        if cancelled:
+            return cancelled_hold_response(code, cancelled)
         return {"status": "not_found", "message": "No order found for: " + code}
 
     dn = frappe.get_doc("Delivery Note", dn_name)
@@ -500,6 +505,9 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
 
     dn_name, awb, box_index, box_count = _resolve(code)
     if not dn_name:
+        cancelled = _cancelled_dn_lookup(code)
+        if cancelled:
+            return cancelled_hold_response(code, cancelled)
         return {"status": "not_found", "message": "No order found for: " + code}
     if not awb:
         return {"status": "need_parcel",

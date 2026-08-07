@@ -31,6 +31,17 @@ def _find_dn_by_awb(awb):
                               fields=["name"], limit_page_length=1)
         if rows:
             return rows[0].name
+    # Manual fixes sometimes leave a comma-separated list in awb_number
+    # ("AWB1,AWB2" — seen 7-Aug on replacement re-mints). The equality match
+    # above misses every AWB after the first, so fall back to a LIKE query and
+    # verify an exact comma-token match.
+    for d in frappe.get_all(
+            "Delivery Note",
+            filters={"docstatus": 1,
+                     "awb_number": ["like", "%,%{0}%".format(awb)]},
+            fields=["name", "awb_number"], limit_page_length=20):
+        if awb in [a.strip() for a in str(d.awb_number or "").split(",")]:
+            return d.name
     # N-box orders keep parcels 3+ only in custom_awb_list (JSON). Query the
     # JSON field for this AWB, then verify an exact parsed match. The previous
     # four-day posting-date cutoff made valid older labels impossible to scan.
@@ -45,6 +56,42 @@ def _find_dn_by_awb(awb):
                for parcel_awb, _courier in _awb_courier_pairs(dn)):
             return d.name
     return None
+
+
+def _cancelled_dn_lookup(code):
+    """A scan that resolves to nothing may be a CANCELLED order whose label was
+    already printed (label minted in the morning wave, customer cancelled, DN +
+    ClickPost shipment voided — the box still exists on the floor). Telling the
+    packer "No order found" hides the difference between a ghost label and a
+    cancelled order, and those have opposite handling. Returns the cancelled DN
+    row or None."""
+    up = (code or "").strip().upper()
+    m = re.match(r"^(SOL\d+)(?:[-_ ]?P\d+)?(?:[-_ ]?R\d+)?$", up)
+    if m:
+        rows = frappe.get_all("Delivery Note",
+                              filters={"shopify_order_number": m.group(1),
+                                       "docstatus": 2},
+                              fields=["name", "shopify_order_number"],
+                              limit_page_length=1)
+        return rows[0] if rows else None
+    code = code.strip()
+    for field in ("awb_number", "custom_awb_2"):
+        rows = frappe.get_all("Delivery Note",
+                              filters={field: ["like", "%{0}%".format(code)],
+                                       "docstatus": 2},
+                              fields=["name", "shopify_order_number", field],
+                              limit_page_length=5)
+        for d in rows:
+            if code in [a.strip() for a in str(d.get(field) or "").split(",")]:
+                return d
+    return None
+
+
+def cancelled_hold_response(code, cancelled):
+    order = cancelled.get("shopify_order_number") or cancelled.get("name")
+    return {"status": "error", "order": order, "dn": cancelled.get("name"),
+            "message": ("ORDER CANCELLED — DO NOT SHIP. Unpack and return the "
+                        "items to stock. ({0})".format(order))}
 
 
 def _resolve(code):
@@ -117,6 +164,9 @@ def scan_dispatch(code):
 
     dn_name, awb, box_index, box_count = _resolve(code)
     if not dn_name:
+        cancelled = _cancelled_dn_lookup(code)
+        if cancelled:
+            return cancelled_hold_response(code, cancelled)
         return {"status": "not_found", "message": "No order found for: " + code}
     if not awb:
         return {"status": "need_parcel",

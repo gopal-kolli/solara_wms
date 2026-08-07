@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import frappe
 
+from solara_wms.wms import d2c_dispatch as dispatch
 from solara_wms.wms import d2c_pack_verify as pack_verify
 
 
@@ -371,3 +372,67 @@ class TestSiblingDispatchHold(TestCase):
 
         self.assertEqual(result["status"], "error")
         self.assertIn("delivered", result["message"])
+
+
+class TestCancelledOrderHold(TestCase):
+
+    @patch.object(dispatch.frappe, "get_all", return_value=[])
+    def test_unknown_code_is_not_cancelled(self, _get_all):
+        self.assertIsNone(dispatch._cancelled_dn_lookup("NOPE123"))
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_order_ref_finds_cancelled_dn(self, get_all):
+        get_all.return_value = [frappe._dict(
+            name="SHPDN27-61162", shopify_order_number="SOL1248233")]
+        row = dispatch._cancelled_dn_lookup("SOL1248233")
+        self.assertEqual(row["name"], "SHPDN27-61162")
+        self.assertEqual(get_all.call_args.kwargs["filters"]["docstatus"], 2)
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_parcel_and_replacement_refs_normalise(self, get_all):
+        get_all.return_value = [frappe._dict(
+            name="SHPDN27-1", shopify_order_number="SOL1246834")]
+        for ref in ("SOL1246834-P2", "SOL1246834-P2-R1", "sol1246834_p1"):
+            row = dispatch._cancelled_dn_lookup(ref)
+            self.assertIsNotNone(row, ref)
+            self.assertEqual(
+                get_all.call_args.kwargs["filters"]["shopify_order_number"],
+                "SOL1246834")
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_awb_comma_token_must_match_exactly(self, get_all):
+        get_all.return_value = [frappe._dict(
+            name="SHPDN27-2", shopify_order_number="SOL9",
+            awb_number="50940273716,50940273999")]
+        self.assertIsNotNone(dispatch._cancelled_dn_lookup("50940273716"))
+        get_all.return_value = [frappe._dict(
+            name="SHPDN27-2", shopify_order_number="SOL9",
+            awb_number="150940273716")]
+        self.assertIsNone(dispatch._cancelled_dn_lookup("50940273716"))
+
+    def test_hold_response_message(self):
+        r = dispatch.cancelled_hold_response("X", frappe._dict(
+            name="SHPDN27-61162", shopify_order_number="SOL1248233"))
+        self.assertEqual(r["status"], "error")
+        self.assertIn("ORDER CANCELLED", r["message"])
+        self.assertIn("DO NOT SHIP", r["message"])
+        self.assertIn("SOL1248233", r["message"])
+
+
+class TestCommaListAwbResolution(TestCase):
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_second_awb_in_comma_list_resolves(self, get_all):
+        def fake(doctype, filters=None, fields=None, limit_page_length=0, **kw):
+            filters = filters or {}
+            if filters.get("awb_number") == "29044411462064":
+                return []            # equality miss
+            if filters.get("custom_awb_2") == "29044411462064":
+                return []
+            if isinstance(filters.get("awb_number"), list):
+                return [frappe._dict(name="SHPDN27-60805",
+                                     awb_number="29044411462053,29044411462064")]
+            return []
+        get_all.side_effect = fake
+        self.assertEqual(dispatch._find_dn_by_awb("29044411462064"),
+                         "SHPDN27-60805")

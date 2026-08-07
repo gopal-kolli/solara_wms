@@ -101,7 +101,7 @@ def _resolve(code):
     code = code.strip()
     up = code.upper()
 
-    m = re.match(r"^(SOL\d+)[-_ ]?P(\d+)$", up)
+    m = re.match(r"^(SOL\d+)[-_ ]?P(\d+)(?:[-_ ]?R\d+)?$", up)
     if m:
         ordno, pidx = m.group(1), int(m.group(2))
         rows = frappe.get_all("Delivery Note",
@@ -114,7 +114,9 @@ def _resolve(code):
         awb = pairs[pidx - 1][0] if 0 < pidx <= len(pairs) else None
         return dn.name, awb, pidx, (cint(dn.get("custom_box_count")) or len(pairs) or 1)
 
-    if re.match(r"^SOL\d+$", up):
+    m = re.match(r"^(SOL\d+)(?:[-_ ]?R\d+)?$", up)
+    if m:
+        up = m.group(1)
         rows = frappe.get_all("Delivery Note",
                               filters={"shopify_order_number": up, "docstatus": 1},
                               fields=["name"], limit_page_length=1)

@@ -436,3 +436,24 @@ class TestCommaListAwbResolution(TestCase):
         get_all.side_effect = fake
         self.assertEqual(dispatch._find_dn_by_awb("29044411462064"),
                          "SHPDN27-60805")
+
+
+class TestReplacementRefResolution(TestCase):
+
+    @patch.object(dispatch.frappe, "get_doc")
+    @patch.object(dispatch.frappe, "get_all")
+    @patch.object(dispatch, "_awb_courier_pairs",
+                  return_value=[("SF-P1", "Shadowfax"), ("SF-P2", "Shadowfax")])
+    def test_r1_parcel_barcode_resolves(self, _pairs, get_all, get_doc):
+        get_all.return_value = [frappe._dict(name="SHPDN27-60804")]
+        doc = frappe._dict(name="SHPDN27-60804")
+        doc.get = doc.__getitem__ if False else (lambda k, d=None: None)
+        get_doc.return_value = doc
+
+        dn, awb, idx, count = dispatch._resolve("SOL1246834-P1-R1")
+
+        self.assertEqual(dn, "SHPDN27-60804")
+        self.assertEqual(awb, "SF-P1")
+        self.assertEqual((idx, count), (1, 2))
+        self.assertEqual(get_all.call_args.kwargs["filters"]
+                         ["shopify_order_number"], "SOL1246834")

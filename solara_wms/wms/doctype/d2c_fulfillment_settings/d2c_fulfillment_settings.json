@@ -61,6 +61,7 @@
   "combine_piece_cap",
   "max_order_lines",
   "completeness_report_enabled",
+  "shopify_address_change_report_enabled",
   "dispatch_stamp_enabled",
   "actions_section",
   "run_release_now",
@@ -302,6 +303,13 @@
    "default": "0",
    "label": "Post Completeness Monitor",
    "description": "Layer-3 leak guarantee. When ON, at 11:00 + 18:00 IST reconcile every Shopify order (last 4 days) against dispatch and post a categorized 'orders not on their way' report to the wave Slack channel. Default OFF; turn on after validating the report content once."
+  },
+  {
+   "fieldname": "shopify_address_change_report_enabled",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Post Address Change Exceptions",
+   "description": "At 09:00 IST, post the PII-minimised list of Shopify address-change holds to the existing warehouse shipping Slack webhook. Default OFF until the report and destination are confirmed."
   },
   {
    "fieldname": "dispatch_stamp_enabled",

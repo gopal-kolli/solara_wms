@@ -17,6 +17,7 @@ from frappe.utils import add_to_date, cint, now_datetime
 from solara_wms.wms.shopify_address_values import (
     address_values as _address_values,
     addresses_match as _addresses_match,
+    render_address_exception_slack,
     state_changed as _state_changed,
 )
 
@@ -172,4 +173,49 @@ def sync_shopify_address_changes():
     except Exception:
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "Shopify Address Sync")
+        return {"failed": 1}
+
+
+def address_change_exceptions(limit=200):
+    """Return the live, PII-minimised address-change control queue."""
+    limit = max(1, min(cint(limit) or 200, 500))
+    if not _has_field("Sales Order", SO_HOLD_FIELD):
+        return []
+    rows = frappe.get_all(
+        "Sales Order", filters={"docstatus": 1, SO_HOLD_FIELD: 1},
+        fields=["name", "shopify_order_number", HOLD_AT_FIELD, HOLD_REASON_FIELD],
+        order_by="{0} asc".format(HOLD_AT_FIELD), limit_page_length=limit,
+    )
+    if not rows:
+        return []
+    dn_rows = frappe.get_all(
+        "Delivery Note Item", filters={"against_sales_order": ["in", [r.name for r in rows]]},
+        fields=["against_sales_order", "parent"], limit_page_length=0,
+    )
+    dns_by_so = {}
+    for row in dn_rows:
+        dns_by_so.setdefault(row.against_sales_order, set()).add(row.parent)
+    return [{
+        "name": row.name,
+        "shopify_order_number": row.get("shopify_order_number"),
+        "held_at": row.get(HOLD_AT_FIELD),
+        "reason": row.get(HOLD_REASON_FIELD),
+        "delivery_note": ", ".join(sorted(dns_by_so.get(row.name, set()))) or None,
+    } for row in rows]
+
+
+def post_address_change_exception_report():
+    """Daily warehouse digest. Uses the existing shipping Slack webhook only."""
+    try:
+        settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
+        if not cint(settings.get("shopify_address_change_report_enabled")):
+            return {"skipped": "address-change report off"}
+        rows = address_change_exceptions()
+        text = render_address_exception_slack(
+            rows, now_datetime().strftime("%d %b %H:%M"))
+        from solara_wms.wms.d2c_fulfillment import _post_slack
+        posted = _post_slack(settings, text, tag="D2C Address Change Exceptions")
+        return {"posted": posted, "exceptions": len(rows)}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "D2C Address Change Exceptions")
         return {"failed": 1}

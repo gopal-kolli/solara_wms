@@ -60,3 +60,15 @@ class TestShopifyAddressSync(TestCase):
         shopify = {"state": "Karnataka"}
 
         self.assertTrue(sync.state_changed(atlas, shopify))
+
+    def test_slack_digest_contains_order_ids_but_not_addresses(self):
+        from solara_wms.wms import shopify_address_values as sync
+
+        text = sync.render_address_exception_slack([
+            {"shopify_order_number": "SOL1249001", "delivery_note": "SHPDN27-1",
+             "reason": "Address changed after Delivery Note creation"}
+        ], "08 Aug 09:00")
+
+        self.assertIn("SOL1249001", text)
+        self.assertIn("SHPDN27-1", text)
+        self.assertNotIn("address_line1", text)

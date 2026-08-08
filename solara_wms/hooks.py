@@ -69,6 +69,11 @@ scheduler_events = {
         "0 11,18 * * *": [
             "solara_wms.wms.d2c_fulfillment.d2c_completeness_report",
         ],
+        # Daily address-change exception list. Gated OFF until the report and
+        # destination are confirmed on TEST.
+        "0 9 * * *": [
+            "solara_wms.wms.shopify_address_sync.post_address_change_exception_report",
+        ],
         # Pack-verify box photos: 90-day retention (SOP-PACK-QC sheet rule).
         # The D2C Pack Verify RECORD is kept forever; only the image is purged.
         "40 2 * * *": [

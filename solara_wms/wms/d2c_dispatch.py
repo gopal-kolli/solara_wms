@@ -216,6 +216,14 @@ def scan_dispatch(code):
         response = hold_response(dn)
         response["awb"] = awb
         return response
+    from solara_wms.wms.shopify_address_sync import (
+        address_hold_response,
+        delivery_note_address_change_hold,
+    )
+    if delivery_note_address_change_hold(dn):
+        response = address_hold_response(dn)
+        response["awb"] = awb
+        return response
 
     dup = frappe.get_all("D2C Dispatch Scan", filters={"awb": awb},
                          fields=["scanned_at", "scanned_by", "shopify_order_number"],

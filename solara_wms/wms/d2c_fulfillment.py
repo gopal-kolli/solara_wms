@@ -774,6 +774,7 @@ def _run_release(settings, dry_run=False, from_date=None, to_date=None):
         if (
             cint(so.get("custom_shopify_hold"))
             or cint(so.get("custom_shopify_cancellation_hold"))
+            or cint(so.get("custom_shopify_address_change_hold"))
         ):
             res["skipped_on_hold"] += 1
             continue

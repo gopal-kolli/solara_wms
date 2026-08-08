@@ -9,6 +9,8 @@
   "label_fetch_enabled",
   "auto_invoice_on_label",
   "auto_fulfill_shopify",
+  "shopify_address_sync_enabled",
+  "shopify_address_sync_lookback_minutes",
   "label_batch_size",
   "label_time_budget_sec",
   "clickpost_api_key",
@@ -97,6 +99,20 @@
    "fieldtype": "Check",
    "label": "Auto Fulfill On Shopify",
    "description": "After physical dispatch is proven (all-parcel handover scan or ClickPost first movement), push the complete AWB set to Shopify and mark fulfilled. Label/AWB creation alone never triggers customer notification."
+  },
+  {
+   "default": "0",
+   "fieldname": "shopify_address_sync_enabled",
+   "fieldtype": "Check",
+   "label": "Sync Shopify Address Changes",
+   "description": "Every 5 minutes, read recently modified Shopify orders. Same-state changes update only an unlabelled, order-specific Atlas address. Existing DNs/AWBs and inter-state changes are held for CS/Ops review. OFF by default."
+  },
+  {
+   "default": "30",
+   "fieldname": "shopify_address_sync_lookback_minutes",
+   "fieldtype": "Int",
+   "label": "Address Sync Lookback (minutes)",
+   "description": "Overlapping Shopify updated-order window. Keep 30 minutes or more so a delayed scheduler tick does not miss an address update."
   },
   {
    "fieldname": "label_batch_size",

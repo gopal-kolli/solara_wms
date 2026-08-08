@@ -430,6 +430,14 @@ def pack_verify_get(code, station=None):
         response = hold_response(dn)
         response["awb"] = awb
         return response
+    from solara_wms.wms.shopify_address_sync import (
+        address_hold_response,
+        delivery_note_address_change_hold,
+    )
+    if delivery_note_address_change_hold(dn):
+        response = address_hold_response(dn)
+        response["awb"] = awb
+        return response
     if not awb:
         return {"status": "need_parcel",
                 "message": "Multi-box order — scan each parcel's AWB barcode."}
@@ -520,6 +528,14 @@ def pack_verify_submit(code, pieces_confirmed=None, station=None,
     )
     if delivery_note_cancellation_hold(dn):
         response = hold_response(dn)
+        response["awb"] = awb
+        return response
+    from solara_wms.wms.shopify_address_sync import (
+        address_hold_response,
+        delivery_note_address_change_hold,
+    )
+    if delivery_note_address_change_hold(dn):
+        response = address_hold_response(dn)
         response["awb"] = awb
         return response
     dispatched = _dispatch_hold(dn, awb)

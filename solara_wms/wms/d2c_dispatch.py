@@ -156,6 +156,39 @@ def _resolve(code):
     return dn_name, code, idx, (cint(dn.get("custom_box_count")) or len(pairs) or 1)
 
 
+def _pack_verify_dispatch_hold(awb):
+    """Return a hard Security hold unless this exact physical parcel has a
+    clean Pack Verify record.
+
+    ``Delivery Note.custom_pack_verified`` is deliberately not used here: it
+    turns on only after *every* parcel of a multi-box order is clean, whereas
+    Security is handing over one parcel at a time.  The AWB-unique Pack Verify
+    record is therefore the only correct gate key.
+
+    A count mismatch is valuable evidence that the packer caught a problem, but
+    it is not authority to ship that parcel.  The line lead must correct the
+    contents and complete a clean re-verification first.
+    """
+    rows = frappe.get_all(
+        "D2C Pack Verify",
+        filters={"awb": awb},
+        fields=["name", "mismatch", "photo_url", "verified_at"],
+        limit_page_length=1,
+    )
+    if not rows:
+        return "PACK VERIFY HOLD — this AWB has not been pack-verified. Return it to the packing line."
+    record = rows[0]
+    if cint(record.get("mismatch")):
+        return ("PACK VERIFY HOLD — {0} has a recorded count mismatch. "
+                "Do not hand over; return it to the line lead.".format(record.name))
+    if not (record.get("photo_url") or "").strip():
+        # The DocType requires the photo, but retain this defensive check so a
+        # malformed/migrated historical row cannot become a shipment authority.
+        return ("PACK VERIFY HOLD — {0} has no open-box photo evidence. "
+                "Return it to the packing line.".format(record.name))
+    return None
+
+
 @frappe.whitelist()
 def scan_dispatch(code):
     """Record one parcel's dispatch scan. Returns a status the scan UI colours:
@@ -192,6 +225,15 @@ def scan_dispatch(code):
         return {"status": "duplicate", "awb": awb, "order": e.shopify_order_number,
                 "message": "ALREADY DISPATCHED " + str(e.scanned_at)[:16] +
                            " by " + (e.scanned_by or "?") + " — DO NOT SHIP"}
+
+    pack_verify_hold = _pack_verify_dispatch_hold(awb)
+    if pack_verify_hold:
+        return {
+            "status": "pack_hold",
+            "awb": awb,
+            "order": dn.get("shopify_order_number"),
+            "message": pack_verify_hold,
+        }
 
     from solara_wms.wms.pack_handoff import dispatch_pack_handoff_status
     handoff = dispatch_pack_handoff_status(awb)

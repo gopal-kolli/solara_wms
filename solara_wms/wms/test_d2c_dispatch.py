@@ -8,6 +8,9 @@ class _Row:
     def __init__(self, **values):
         self.__dict__.update(values)
 
+    def get(self, key, default=None):
+        return self.__dict__.get(key, default)
+
 
 class _Doc:
     def __init__(self, **values):
@@ -107,3 +110,37 @@ class TestDeliveryNoteResolution(TestCase):
             dispatch._resolve("SHPDN27-99999"),
             (None, None, None, None),
         )
+
+
+class TestPackVerifySecurityGate(TestCase):
+    @patch.object(dispatch.frappe, "get_all", return_value=[])
+    def test_unverified_awb_is_held(self, get_all):
+        self.assertIn("has not been pack-verified",
+                      dispatch._pack_verify_dispatch_hold("AWB-1"))
+        get_all.assert_called_once_with(
+            "D2C Pack Verify",
+            filters={"awb": "AWB-1"},
+            fields=["name", "mismatch", "photo_url", "verified_at"],
+            limit_page_length=1,
+        )
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_mismatched_awb_is_held(self, get_all):
+        get_all.return_value = [_Row(
+            name="PACKV-00001", mismatch=1, photo_url="/private/files/box.jpg"
+        )]
+        self.assertIn("count mismatch",
+                      dispatch._pack_verify_dispatch_hold("AWB-1"))
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_missing_photo_is_held(self, get_all):
+        get_all.return_value = [_Row(name="PACKV-00001", mismatch=0, photo_url="")]
+        self.assertIn("no open-box photo evidence",
+                      dispatch._pack_verify_dispatch_hold("AWB-1"))
+
+    @patch.object(dispatch.frappe, "get_all")
+    def test_clean_awb_can_reach_security(self, get_all):
+        get_all.return_value = [_Row(
+            name="PACKV-00001", mismatch=0, photo_url="/private/files/box.jpg"
+        )]
+        self.assertIsNone(dispatch._pack_verify_dispatch_hold("AWB-1"))
